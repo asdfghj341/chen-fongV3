@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>隔音墊施工計算 (本機單機版 - UI 更新版)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM (UMD 版本) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        /* 錯誤訊息樣式 */
+        #error-display { display: none; padding: 20px; background: #fee2e2; color: #991b1b; border: 1px solid #f87171; margin: 20px; border-radius: 8px; }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen p-4 sm:p-6">
+
+    <div id="error-display"></div>
+    <div id="root"></div>
+
+    <script>
+        // 全域錯誤捕捉，若畫面空白會顯示錯誤原因
+        window.onerror = function(message, source, lineno, colno, error) {
+            const display = document.getElementById('error-display');
+            display.style.display = 'block';
+            display.innerHTML = `<strong>發生錯誤：</strong><br>${message}<br><small>${source}:${lineno}</small>`;
+        };
+
+        // 傳統啟動函數，確保應用程式在頁面載入後啟動
+        function startApp() {
+            const container = document.getElementById('root');
+            if (container && window.ReactDOM && window.ReactDOM.createRoot && window.SoundproofingCalculator) {
+                // 最終、最安全的啟動方式
+                ReactDOM.createRoot(container).render(React.createElement(window.SoundproofingCalculator));
+            }
+        }
+        
+        // 確保在頁面載入後執行啟動
+        window.onload = startApp;
+    </script>
+
+    <script type="text/babel">
+        // --- 輔助函數和常量定義 ---
+        const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+        const STORAGE_KEY = 'soundproofing_projects_v1';
+        
+        const parseNum = (val) => {
+            if (!val) return 0;
+            const num = parseFloat(val);
+            return isNaN(num) ? 0 : num;
+        };
+        const formatCurrency = (num) => new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(num);
+        const formatNumber = (num) => new Intl.NumberFormat('zh-TW').format(num);
+        const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+        // --- ICON Components ---
+        const IconBase = ({ d, color="currentColor" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d={d} />
+            </svg>
+        );
+        const Trash2 = () => <IconBase d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />;
+        const Calculator = () => <IconBase d="M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M6 10h12 M6 14h12 M6 18h12" />; 
+        const DollarSign = () => <IconBase d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />;
+        const Package = () => <IconBase d="M16.5 9.4l-9-5.19M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16zM3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" />;
+        const Activity = () => <IconBase d="M22 12h-4l-3 9L9 3l-3 9H2" />;
+        const TrendingUp = () => <IconBase d="M23 6l-9.5 9.5-5-5L1 18" />;
+        const Plus = () => <IconBase d="M12 5v14M5 12h14" />;
+        const FolderOpen = () => <IconBase d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />;
+        const FileText = () => <IconBase d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8" />; // Icon for PDF
+
+        // --- 資料清理函式 ---
+        const sanitizeProjects = (projects) => {
+            if (!Array.isArray(projects)) return [];
+            return projects.map(p => ({
+                ...p,
+                paymentRequests: (p.paymentRequests || []).map(i => ({...i, value: i.value || ''})),
+                deductions: (p.deductions || []).map(i => ({...i, value: i.value || ''})),
+                deliveries: (p.deliveries || []).map(i => ({...i, value: i.value || ''})),
+                subPayments: (p.subPayments || []).map(i => ({...i, value: i.value || ''})),
+                contractQty: p.contractQty || '',
+                unitPrice: p.unitPrice || '',
+                unusedInventory: p.unusedInventory || '',
+                projectedArea: p.projectedArea || '',
+                wallArea: p.wallArea || '',
+                glueBuckets: p.glueBuckets || '',
+                tapeWideRolls: p.tapeWideRolls || '',
+                tapeNarrowRolls: p.tapeNarrowRolls || '',
+                shippingCost: p.shippingCost || '',
+            }));
+        };
+
+        const createInitialState = (projectName = '新專案') => ({
+            id: generateId(),
+            projectName: projectName, 
+            contractQty: '',
+            unitPrice: '',
+            paymentRequests: [{ id: generateId(), value: '' }],
+            deductions: [{ id: generateId(), name: '清潔費', value: '' }, { id: generateId(), name: '保留款', value: '' }],
+            deliveries: [{ id: generateId(), date: '', value: '' }],
+            unusedInventory: '',
+            projectedArea: '',
+            wallArea: '',
+            subPayments: [{ id: generateId(), value: '' }],
+            glueBuckets: '',
+            tapeWideRolls: '',
+            tapeNarrowRolls: '',
+            shippingCost: '',
+            lastUpdated: Date.now(),
+        });
+
+        // --- UI 元件 ---
+        const Card = ({ title, icon: Icon, children }) => (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+                    {Icon && <Icon />}
+                    <h2 className="font-bold text-lg text-slate-800">{title}</h2>
+                </div>
+                <div className="p-6">{children}</div>
+            </div>
+        );
+
+        const SectionHeader = ({ title }) => (
+            <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3 mt-2">{title}</h3>
+        );
+
+        const SimpleInput = ({ label, value, onChange, type = "number", placeholder = "", suffix = "" }) => (
+            <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
+                <div className="relative rounded-md shadow-sm">
+                    <input
+                        type={type}
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        className="block w-full rounded-md border-slate-300 pl-3 pr-12 py-2 focus:border-blue-500 focus:ring-blue-500 sm:text-sm border"
+                        placeholder={placeholder}
+                        step="any"
+                    />
+                    {suffix && (
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                            <span className="text-slate-500 sm:text-sm">{suffix}</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+
+        // 列表項目
+        const DynamicListItem = ({ item, index, labelPrefix, valueField = "value", dateField, unitPrice, showPriceCalc, updateRow, onRemove }) => {
+            const calculatedAmount = showPriceCalc ? parseNum(item[valueField]) * parseNum(unitPrice) : 0;
+            
+            return (
+                <div className="flex flex-col gap-1 pb-3 border-b border-slate-100 last:border-0">
+                    <div className="flex gap-2 items-end">
+                        {dateField && (
+                            <div className="w-1/3">
+                                <label className="block text-xs text-slate-500 mb-1">日期</label>
+                                <input
+                                    type="date"
+                                    value={item[dateField]}
+                                    onChange={(e) => updateRow(item.id, dateField, e.target.value)}
+                                    className="block w-full rounded-md border-slate-300 py-2 px-2 text-sm border focus:ring-blue-500"
+                                />
+                            </div>
+                        )}
+                        <div className="flex-1">
+                            <label className="block text-xs text-slate-500 mb-1">{labelPrefix} {index + 1}</label>
+                            <input
+                                type="number"
+                                value={item[valueField]}
+                                onChange={(e) => updateRow(item.id, valueField, e.target.value)}
+                                className="block w-full rounded-md border-slate-300 py-2 px-3 text-sm border focus:ring-blue-500"
+                                placeholder="輸入數量"
+                            />
+                        </div>
+                        <button onClick={() => onRemove(item.id)} className="mb-[2px] p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors">
+                            <Trash2 />
+                        </button>
+                    </div>
+                    {showPriceCalc && (
+                        <div className="text-xs text-slate-500 text-right px-1">
+                            = <span className="font-medium text-blue-600">{formatCurrency(calculatedAmount)}</span>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const DynamicList = ({ items, onAdd, onRemove, onUpdate, ...props }) => (
+            <div className="space-y-3 mb-4">
+                {items.map((item, index) => (
+                    <DynamicListItem key={item.id} item={item} index={index} updateRow={onUpdate} onRemove={onRemove} {...props} />
+                ))}
+                <button onClick={onAdd} className="flex items-center gap-1 text-sm text-blue-600 font-medium hover:text-blue-700 mt-2">
+                    <Plus /> 新增項目
+                </button>
+            </div>
+        );
+
+        const DeductionItem = ({ item, updateRow, onRemove }) => { // 修正 DeductionItem 使用明確 return 結構
+            return (
+                <div className="flex gap-2 items-end mb-3">
+                    <div className="flex-1">
+                        <label className="block text-xs text-slate-500 mb-1">項目名稱</label>
+                        <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => updateRow(item.id, 'name', e.target.value)}
+                            className="block w-full rounded-md border-slate-300 py-2 px-3 text-sm border focus:ring-blue-500"
+                            placeholder="例如: 清潔費"
+                        />
+                    </div>
+                    <div className="w-1/3">
+                        <label className="block text-xs text-slate-500 mb-1">金額</label>
+                        <input
+                            type="number"
+                            value={item.value}
+                            onChange={(e) => updateRow(item.id, 'value', e.target.value)}
+                            className="block w-full rounded-md border-slate-300 py-2 px-3 text-sm border focus:ring-blue-500"
+                        />
+                    </div>
+                    <button onClick={() => onRemove(item.id)} className="mb-[2px] p-2 text-red-500 hover:bg-red-50 rounded-md">
+                        <Trash2 />
+                    </button>
+                </div>
+            );
+        };
+
+        // 主程式 (將其附加到 window，以便外部啟動腳本調用)
+        window.SoundproofingCalculator = function SoundproofingCalculator() {
+            // --- State ---
+            const [projects, setProjects] = useState([]);
+            const [currentProjectId, setCurrentProjectId] = useState(null);
+            
+            // --- 載入與儲存邏輯 ---
+            
+            // 1. 初始化：從 LocalStorage 讀取資料
+            useEffect(() => {
+                const savedData = localStorage.getItem(STORAGE_KEY);
+                if (savedData) {
+                    try {
+                        const parsedProjects = sanitizeProjects(JSON.parse(savedData));
+                        if (parsedProjects.length > 0) {
+                            setProjects(parsedProjects);
+                            setCurrentProjectId(parsedProjects[0].id);
+                        } else {
+                            initNewProject();
+                        }
+                    } catch (e) {
+                        console.error("讀取存檔失敗", e);
+                        initNewProject();
+                    }
+                } else {
+                    initNewProject();
+                }
+            }, []);
+
+            // 2. 自動儲存：當 projects 變動時，寫入 LocalStorage
+            useEffect(() => {
+                if (projects.length > 0) {
+                    // 確保專案是按更新時間排序的，以便下次載入時選中最新的
+                    const sortedProjects = [...projects].sort((a, b) => b.lastUpdated - a.lastUpdated);
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(sortedProjects));
+                }
+            }, [projects]);
+
+            // --- 專案操作 ---
+
+            const initNewProject = () => {
+                const newProject = createInitialState();
+                setProjects([newProject]);
+                setCurrentProjectId(newProject.id);
+            };
+
+            const handleCreateProject = () => {
+                const newProject = createInitialState(`新專案 ${projects.length + 1}`);
+                setProjects(prev => [newProject, ...prev]);
+                setCurrentProjectId(newProject.id);
+            };
+
+            const handleDeleteProject = (id) => {
+                if (!confirm("確定要刪除此專案嗎？無法復原。")) return;
+                const newProjects = projects.filter(p => p.id !== id);
+                setProjects(newProjects);
+                if (newProjects.length > 0) {
+                    setCurrentProjectId(newProjects[0].id); // 切換到第一個專案
+                } else {
+                    initNewProject(); // 如果刪光了，自動新增一個
+                }
+            };
+
+            // 取得當前正在編輯的專案物件
+            const currentProject = projects.find(p => p.id === currentProjectId) || createInitialState();
+
+            // --- 更新當前專案資料的通用函數 ---
+            const updateProjectField = (field, value) => {
+                setProjects(prev => prev.map(p => 
+                    p.id === currentProjectId 
+                        ? { ...p, [field]: value, lastUpdated: Date.now() } 
+                        : p
+                ));
+            };
+
+            // 用於列表更新
+            const updateListField = (listName, itemId, field, value) => {
+                setProjects(prev => prev.map(p => {
+                    if (p.id !== currentProjectId) return p;
+                    const updatedList = p[listName].map(item => 
+                        item.id === itemId ? { ...item, [field]: value } : item
+                    );
+                    return { ...p, [listName]: updatedList, lastUpdated: Date.now() };
+                }));
+            };
+
+            const addListItem = (listName, newItem) => {
+                setProjects(prev => prev.map(p => {
+                    if (p.id !== currentProjectId) return p;
+                    return { ...p, [listName]: [...p[listName], { ...newItem, id: generateId() }], lastUpdated: Date.now() };
+                }));
+            };
+
+            const removeListItem = (listName, itemId) => {
+                setProjects(prev => prev.map(p => {
+                    if (p.id !== currentProjectId) return p;
+                    return { ...p, [listName]: p[listName].filter(i => i.id !== itemId), lastUpdated: Date.now() };
+                }));
+            };
+
+            // 硬體重置
+            const handleHardReset = () => {
+                if(confirm("這將會清除所有專案並重置為初始狀態！確定嗎？")) {
+                    localStorage.removeItem(STORAGE_KEY);
+                    window.location.reload();
+                }
+            };
+
+            // --- 計算邏輯 (Derived State) ---
+            const { 
+                projectName, contractQty, unitPrice, paymentRequests, deductions, 
+                deliveries, unusedInventory, projectedArea, wallArea, 
+                subPayments, glueBuckets, tapeWideRolls, tapeNarrowRolls, shippingCost 
+            } = currentProject;
+
+            const GLUE_PRICE = 1680;
+            const TAPE_WIDE_PRICE = 24.5;
+            const TAPE_NARROW_PRICE = 38;
+            const ROLL_AREA = 50; 
+            const MAT_COST_PER_SQM = 150; 
+
+            const totalPaymentQty = paymentRequests.reduce((acc, curr) => acc + parseNum(curr.value), 0);
+            const totalPaymentAmount = totalPaymentQty * parseNum(unitPrice); 
+            const remainingContractQty = parseNum(contractQty) - totalPaymentQty; // 第一大項新增需求
+            const totalDeductionAmount = deductions.reduce((acc, curr) => acc + parseNum(curr.value), 0);
+            const totalDelivered = deliveries.reduce((acc, curr) => acc + parseNum(curr.value), 0);
+            const totalUsedInventory = totalDelivered - parseNum(unusedInventory);
+            const totalArea = totalUsedInventory * ROLL_AREA;
+            const wasteAreaDisplay = Math.max(0, (parseNum(projectedArea) + parseNum(wallArea)) > 0 ? totalArea - (parseNum(projectedArea) + parseNum(wallArea)) : 0);
+            const calculatedWasteRate = totalArea > 0 ? ((parseNum(wallArea) + wasteAreaDisplay) / totalArea) * 100 : 0;
+            const totalSubPayment = subPayments.reduce((acc, curr) => acc + parseNum(curr.value), 0);
+            const totalMaterialMiscCost = (parseNum(glueBuckets) * GLUE_PRICE) + (parseNum(tapeWideRolls) * TAPE_WIDE_PRICE) + (parseNum(tapeNarrowRolls) * TAPE_NARROW_PRICE);
+            const matTotalCost = totalArea * MAT_COST_PER_SQM; 
+            const totalCost = totalSubPayment + totalMaterialMiscCost + totalDeductionAmount + matTotalCost + parseNum(shippingCost);
+            const grossProfit = totalPaymentAmount - totalCost; 
+            const grossMargin = totalPaymentAmount > 0 ? (grossProfit / totalPaymentAmount) * 100 : 0;
+
+            // --- Render ---
+            return (
+                <div className="max-w-4xl mx-auto pb-20">
+                    <header className="mb-6 text-center">
+                        <h1 className="text-3xl font-bold text-slate-800">隔音墊施工計算 (單機版)</h1>
+                        <p className="text-slate-500 mt-2">資料儲存於本機瀏覽器</p>
+                    </header>
+                    
+                    {/* 專案選擇區 */}
+                    <div className="flex flex-col md:flex-row gap-3 items-start md:items-center bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
+                        <div className="flex items-center gap-2 w-full md:w-auto">
+                            <FolderOpen className="text-purple-600" />
+                            <label className="text-sm font-semibold text-slate-700">切換專案:</label>
+                        </div>
+                        <select 
+                            className="flex-grow p-2 border border-slate-300 rounded-md shadow-sm"
+                            value={currentProjectId || ''}
+                            onChange={(e) => setCurrentProjectId(e.target.value)}
+                        >
+                            {projects.map(p => (
+                                <option key={p.id} value={p.id}>{p.projectName} (最後更新: {new Date(p.lastUpdated).toLocaleString()})</option>
+                            ))}
+                        </select>
+                        <div className="flex gap-2 mt-2 md:mt-0">
+                            <button onClick={handleCreateProject} className="flex items-center gap-1 text-sm bg-purple-500 text-white px-3 py-2 rounded hover:bg-purple-600"><Plus size={16}/> 新增</button>
+                            <button onClick={() => handleDeleteProject(currentProjectId)} className="flex items-center gap-1 text-sm bg-red-500 text-white px-3 py-2 rounded hover:bg-red-600"><Trash2 size={16}/> 刪除</button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow p-6 mb-6">
+                        <label className="block text-lg font-bold mb-2">專案名稱</label>
+                        <input 
+                            type="text" 
+                            value={projectName} 
+                            onChange={(e) => updateProjectField('projectName', e.target.value)} 
+                            className="block w-full rounded border p-3 text-lg" 
+                            placeholder="輸入專案名稱..." 
+                        />
+                    </div>
+
+                    <div className="space-y-6">
+                        {/* 1. 合約與請款 */}
+                        <Card title="第一大項：合約與請款" icon={DollarSign}>
+                            <div className="grid md:grid-cols-2 gap-6">
+                                <div>
+                                    <SectionHeader title="合約基礎資訊" />
+                                    <SimpleInput label="合約數量" value={contractQty} onChange={(v) => updateProjectField('contractQty', v)} suffix="坪/m²" />
+                                    <SimpleInput label="本案單價" value={unitPrice} onChange={(v) => updateProjectField('unitPrice', v)} suffix="元" />
+                                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                                        <div className="text-sm text-blue-800 font-semibold mb-1">目前總營收</div>
+                                        <div className="text-2xl font-bold text-blue-600">{formatCurrency(totalPaymentAmount)}</div>
+                                        <div className="text-xs text-blue-400 mt-1">數量總計: {formatNumber(totalPaymentQty)}</div>
+                                        <div className={`text-xs mt-1 font-bold ${remainingContractQty < 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                            合約剩餘: {formatNumber(remainingContractQty)}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <SectionHeader title="請款進度" />
+                                    {!parseNum(unitPrice) && (<div className="text-xs text-red-500 mb-2">* 請輸入單價以計算金額</div>)}
+                                    <DynamicList 
+                                        items={paymentRequests} 
+                                        onAdd={() => addListItem('paymentRequests', { value: '' })}
+                                        onRemove={(id) => removeListItem('paymentRequests', id)}
+                                        onUpdate={(id, f, v) => updateListField('paymentRequests', id, f, v)}
+                                        valueField="value"
+                                        labelPrefix="請款" unitPrice={unitPrice} showPriceCalc 
+                                    />
+                                </div>
+                            </div>
+                            <div className="mt-6 border-t pt-4">
+                                <SectionHeader title="扣款項目" />
+                                {deductions.map(item => (
+                                    <DeductionItem 
+                                        key={item.id} item={item} 
+                                        updateRow={(id, f, v) => updateListField('deductions', id, f, v)}
+                                        onRemove={(id) => removeListItem('deductions', id)}
+                                    />
+                                ))}
+                                <button onClick={() => addListItem('deductions', { name: '', value: '' })} className="flex items-center gap-1 text-sm text-blue-600 mt-2"><Plus size={16}/> 新增扣款</button>
+                                <div className="text-right text-sm text-red-600 font-bold mt-2">扣款總計: -{formatCurrency(totalDeductionAmount)}</div>
+                            </div>
+                        </Card>
+
+                        {/* 2. 進貨 */}
+                        <Card title="第二大項：進貨與庫存" icon={Package}>
+                            <div className="grid md:grid-cols-2 gap-6">
+                                <div>
+                                    <SectionHeader title="進貨紀錄 (卷)" />
+                                    <DynamicList 
+                                        items={deliveries} 
+                                        onAdd={() => addListItem('deliveries', { date: '', value: '' })}
+                                        onRemove={(id) => removeListItem('deliveries', id)}
+                                        onUpdate={(id, f, v) => updateListField('deliveries', id, f, v)}
+                                        valueField="value"
+                                        labelPrefix="進貨" dateField="date" 
+                                    />
+                                    <div className="text-sm font-bold text-slate-700 bg-slate-100 p-2 rounded">累積進貨: {formatNumber(totalDelivered)}</div>
+                                </div>
+                                <div>
+                                    <SectionHeader title="現場盤點" />
+                                    <SimpleInput label="未使用數量 (卷)" value={unusedInventory} onChange={(v) => updateProjectField('unusedInventory', v)} />
+                                    <div className="bg-orange-50 p-4 rounded-lg mt-4"><div className="text-sm text-orange-800 font-semibold mb-1">實際使用量</div><div className="text-2xl font-bold text-orange-600">{formatNumber(totalUsedInventory)}</div></div>
+                                </div>
+                            </div>
+                        </Card>
+
+                        {/* 3. 損耗 */}
+                        <Card title="第三大項：損耗計算" icon={Activity}>
+                            <div className="grid md:grid-cols-4 gap-4">
+                                <SimpleInput label="投影面積" value={projectedArea} onChange={(v) => updateProjectField('projectedArea', v)} />
+                                <SimpleInput label="上牆面積" value={wallArea} onChange={(v) => updateProjectField('wallArea', v)} />
+                                <div className="mb-4"><label className="block text-sm font-medium text-slate-700 mb-1">總面積 (供料)</label><div className="bg-slate-100 border p-2 rounded text-lg font-bold text-blue-700">{formatNumber(totalArea)}</div></div>
+                                <div className="mb-4"><label className="block text-sm font-medium text-slate-700 mb-1">損耗面積</label><div className="bg-slate-100 border p-2 rounded text-lg font-bold text-orange-700">{formatNumber(wasteAreaDisplay)}</div></div>
+                            </div>
+                            <div className="mt-4 p-4 bg-slate-800 text-white rounded-lg flex justify-between items-center"><span className="font-semibold">總損耗率：</span><span className="text-2xl font-mono text-yellow-400">{calculatedWasteRate.toFixed(2)}%</span></div>
+                        </Card>
+
+                        {/* 4. 成本 */}
+                        <Card title="第四大項：成本分析" icon={Calculator}>
+                            <div className="grid md:grid-cols-2 gap-8">
+                                <div>
+                                    <SectionHeader title="小恩施作費用" />
+                                    <DynamicList 
+                                        items={subPayments} 
+                                        onAdd={() => addListItem('subPayments', { value: '' })}
+                                        onRemove={(id) => removeListItem('subPayments', id)}
+                                        onUpdate={(id, f, v) => updateListField('subPayments', id, f, v)}
+                                        valueField="value"
+                                        labelPrefix="請款" 
+                                    />
+                                    <div className="text-right font-bold mt-2">施工費總計: {formatCurrency(totalSubPayment)}</div>
+                                </div>
+                                <div>
+                                    <SectionHeader title="材料成本" />
+                                    <div className="flex gap-4 items-center mb-2"><div className="flex-1 text-sm">膠水 ({formatCurrency(GLUE_PRICE)})</div><div className="w-24"><SimpleInput value={glueBuckets} onChange={(v) => updateProjectField('glueBuckets', v)} placeholder="數量" /></div></div>
+                                    <div className="flex gap-4 items-center mb-2"><div className="flex-1 text-sm">寬版膠帶 ({formatCurrency(TAPE_WIDE_PRICE)})</div><div className="w-24"><SimpleInput value={tapeWideRolls} onChange={(v) => updateProjectField('tapeWideRolls', v)} placeholder="數量" /></div></div>
+                                    <div className="flex gap-4 items-center mb-2"><div className="flex-1 text-sm">窄版膠帶 ({formatCurrency(TAPE_NARROW_PRICE)})</div><div className="w-24"><SimpleInput value={tapeNarrowRolls} onChange={(v) => updateProjectField('tapeNarrowRolls', v)} placeholder="數量" /></div></div>
+                                    
+                                    <div className="border-t pt-2 mt-2"><SimpleInput label="運費/雜項" value={shippingCost} onChange={(v) => updateProjectField('shippingCost', v)} suffix="元" /></div>
+                                    
+                                    <div className="text-right text-sm font-bold mt-2">耗材總計: {formatCurrency(totalMaterialMiscCost)}</div>
+                                    
+                                    <div className="text-right text-sm font-bold text-blue-700 mt-2">隔音墊成本: {formatCurrency(matTotalCost)}</div>
+                                    <div className="text-xs text-gray-500 text-right">
+                                        = {formatNumber(totalUsedInventory)} 卷 &times; {ROLL_AREA} M²/卷 &times; {formatCurrency(MAT_COST_PER_SQM)}/M²
+                                    </div>
+                                </div>
+                            </div>
+                        </Card>
+
+                        {/* 5. 毛利 (UI 更新版) */}
+                        <Card title="第五大項：毛利分析" icon={TrendingUp}>
+                            <div className="space-y-3 text-lg">
+                                {/* Revenue */}
+                                <div className="flex justify-between font-semibold">
+                                    <span>總營收 (請款)</span>
+                                    <span>{formatCurrency(totalPaymentAmount)}</span>
+                                </div>
+
+                                <div className="border-t border-slate-200 my-2"></div>
+
+                                {/* Cost Breakdown Section */}
+                                <div className="text-sm text-slate-600 space-y-1">
+                                    <div className="font-semibold text-slate-800 mb-2">成本結構：</div>
+                                    <div className="flex justify-between"><span>(-) 扣款合計</span><span>{formatCurrency(totalDeductionAmount)}</span></div>
+                                    <div className="flex justify-between"><span>(-) 小恩施作費用</span><span>{formatCurrency(totalSubPayment)}</span></div>
+                                    <div className="flex justify-between"><span>(-) 其他耗材</span><span>{formatCurrency(totalMaterialMiscCost)}</span></div>
+                                    <div className="flex justify-between"><span>(-) 運費/雜項</span><span>{formatCurrency(parseNum(shippingCost))}</span></div>
+                                    <div className="flex justify-between"><span>(-) 隔音墊成本</span><span>{formatCurrency(matTotalCost)}</span></div>
+                                </div>
+
+                                {/* Total Cost Summary */}
+                                <div className="flex justify-between text-red-500 font-semibold border-t border-dashed border-slate-300 pt-2">
+                                    <span>總成本合計</span>
+                                    <span>-{formatCurrency(totalCost)}</span>
+                                </div>
+
+                                <div className="border-t border-slate-400 my-3"></div>
+
+                                {/* Profit and Margin */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-green-50 p-4 rounded-lg text-center">
+                                        <div className="text-sm text-green-700 mb-1">毛利金額</div>
+                                        <div className={`text-2xl font-bold ${grossProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                            {formatCurrency(grossProfit)}
+                                        </div>
+                                    </div>
+                                    <div className="bg-purple-50 p-4 rounded-lg text-center">
+                                        <div className="text-sm text-purple-700 mb-1">毛利率</div>
+                                        <div className={`text-2xl font-bold ${grossMargin >= 0 ? 'text-purple-600' : 'text-red-600'}`}>
+                                            {grossMargin.toFixed(2)}%
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </Card>
+                    </div>
+
+                    <div className="mt-12 text-center border-t pt-6">
+                        <button onClick={handleHardReset} className="text-xs text-red-400 underline hover:text-red-600">重置所有資料 (修復故障用)</button>
+                    </div>
+                </div>
+            );
+        }
+    </script>
+</body>
+</html>
