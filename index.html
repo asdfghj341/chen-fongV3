@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>隔音墊施工計算 - 雲端登入版</title>
+    <title>隔音墊施工計算 - 團隊協作版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -16,7 +16,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
     
     <script>
-        // 您的 Firebase 網站應用程式設定
+        // 您的 Firebase 設定
         const firebaseConfig = {
             apiKey: "AIzaSyAOL5kA2POWbfGLULAwERTxzetCqVo_Xx8",
             authDomain: "chen-fongv1.firebaseapp.com",
@@ -26,14 +26,13 @@
             appId: "1:251834902996:web:b9b7fd80823c1a216b8e41"
         };
 
-        // 初始化 Firebase
         if (!firebase.apps.length) {
             window.firebaseApp = firebase.initializeApp(firebaseConfig);
         } else {
             window.firebaseApp = firebase.app();
         }
         window.db = firebase.firestore();
-        window.auth = firebase.auth(); // 初始化 Auth
+        window.auth = firebase.auth();
     </script>
 
     <style>
@@ -76,6 +75,7 @@
         const formatCurrency = (num) => new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(num);
         const formatNumber = (num) => new Intl.NumberFormat('zh-TW').format(num);
         const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+        const getUserName = (user) => user.displayName || user.email.split('@')[0];
 
         // --- ICONS ---
         const IconBase = ({ d, color="currentColor" }) => (
@@ -92,6 +92,7 @@
         const Plus = () => <IconBase d="M12 5v14M5 12h14" />;
         const FolderOpen = () => <IconBase d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />;
         const LogOut = () => <IconBase d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9" />;
+        const Users = () => <IconBase d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75" />;
         const GoogleIcon = () => (
             <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -122,9 +123,10 @@
             }));
         };
 
-        const createInitialState = (projectName = '新專案', uid = null) => ({
+        const createInitialState = (projectName = '新專案', uid = null, userName = '') => ({
             projectName: projectName, 
-            uid: uid, // 綁定使用者
+            uid: uid, 
+            lastUpdatedBy: userName, // 新增：記錄創建者/修改者
             contractQty: '',
             unitPrice: '',
             paymentRequests: [{ id: generateId(), value: '' }],
@@ -141,7 +143,7 @@
             lastUpdated: Date.now(),
         });
 
-        // --- 元件 ---
+        // --- 元件 (保持不變) ---
         const Card = ({ title, icon: Icon, children }) => (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
                 <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center gap-2">
@@ -257,7 +259,6 @@
             );
         };
 
-        // --- 登入畫面元件 ---
         const LoginScreen = ({ onLogin }) => (
             <div className="min-h-screen login-bg flex flex-col items-center justify-center p-4">
                 <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center">
@@ -265,7 +266,8 @@
                         <Calculator />
                     </div>
                     <h1 className="text-2xl font-bold text-slate-800 mb-2">隔音墊施工計算</h1>
-                    <p className="text-slate-500 mb-8">請登入以存取您的私人專案資料</p>
+                    <p className="text-slate-500 mb-2">團隊協作版</p>
+                    <p className="text-xs text-slate-400 mb-8">登入後可查看並編輯所有專案</p>
                     
                     <button 
                         onClick={onLogin}
@@ -274,14 +276,10 @@
                         <GoogleIcon />
                         使用 Google 帳號登入
                     </button>
-                    <p className="text-xs text-slate-400 mt-6">
-                        資料將安全儲存於 Google Cloud
-                    </p>
                 </div>
             </div>
         );
 
-        // --- 主應用程式 ---
         window.SoundproofingCalculator = function SoundproofingCalculator() {
             // User State
             const [user, setUser] = useState(null);
@@ -301,7 +299,7 @@
                 return () => unsubscribe();
             }, []);
 
-            // 登入功能
+            // 登入
             const handleLogin = () => {
                 const provider = new firebase.auth.GoogleAuthProvider();
                 window.auth.signInWithPopup(provider).catch(error => {
@@ -309,44 +307,50 @@
                 });
             };
 
-            // 登出功能
+            // 登出
             const handleLogout = () => {
                 window.auth.signOut();
-                setProjects([]); // 清空本地資料
+                setProjects([]); 
             };
 
-            // 新增專案 (自動綁定 UID)
+            // 新增專案 (共用模式)
             const handleCreateProject = useCallback((name = `新專案 ${projects.length + 1}`) => {
                 if (!user) return;
-                const newProjectData = createInitialState(name, user.uid); // 寫入 uid
+                const newProjectData = createInitialState(name, user.uid, getUserName(user)); // 記錄創建者
                 window.db.collection('projects').add(newProjectData)
                     .then(docRef => {
-                        console.log("Created:", docRef.id);
                         setCurrentProjectId(docRef.id);
                     })
                     .catch(error => console.error("新增專案失敗:", error));
             }, [projects.length, user]);
 
             const handleDeleteProject = (id) => {
-                if (!confirm("確定要刪除此專案嗎？刪除後無法復原。")) return;
+                if (!confirm("確定要刪除此專案嗎？刪除後無法復原，其他人也將看不到此專案。")) return;
                 window.db.collection('projects').doc(id).delete()
                     .catch(error => console.error("刪除專案失敗:", error));
             };
 
+            // 通用更新函數 (會記錄 lastUpdatedBy)
+            const updateToFirestore = useCallback((docId, data) => {
+                if (!user) return;
+                window.db.collection('projects').doc(docId).update({ 
+                    ...data, 
+                    lastUpdated: Date.now(),
+                    lastUpdatedBy: getUserName(user) // 自動記錄是誰改的
+                }).catch(error => console.error(`更新失敗:`, error));
+            }, [user]);
+
             const updateSingleFieldToFirestore = useCallback((field, value) => {
                 if (!currentProjectId) return;
-                window.db.collection('projects').doc(currentProjectId).update({ 
-                    [field]: value, 
-                    lastUpdated: Date.now() 
-                }).catch(error => console.error(`更新失敗:`, error));
-            }, [currentProjectId]);
+                updateToFirestore(currentProjectId, { [field]: value });
+            }, [currentProjectId, updateToFirestore]);
 
-            // 監聽 Firestore (只抓取自己的資料)
+            // 監聽 Firestore (移除 uid 過濾，實現共享)
             useEffect(() => {
-                if (!user) return; // 未登入不動作
+                if (!user) return;
 
+                // 修改：移除 .where('uid', '==', user.uid)，實現所有用戶資料共享
                 const unsubscribe = window.db.collection('projects')
-                    .where('uid', '==', user.uid) // 關鍵：只查詢屬於目前使用者的資料
                     .orderBy('lastUpdated', 'desc')
                     .onSnapshot(snapshot => {
                         const loadedProjects = snapshot.docs.map(doc => ({
@@ -361,14 +365,15 @@
                                 setCurrentProjectId(sanitized[0].id);
                             }
                         } else {
-                            // 如果是新用戶，沒有專案，自動建立一個
-                            handleCreateProject('我的第一個專案'); 
+                            if (loadedProjects.length === 0) {
+                                // 只有當整個資料庫都空的時候才自動新增，避免每個新進來的人都自動新增
+                                // 這裡可以留空，或是給個提示
+                            }
                         }
                     }, error => {
                         console.error("Firestore 監聽失敗:", error);
-                        // 處理索引尚未建立的情況 (有時 Firebase 需要幾分鐘建立複合索引)
                         if (error.code === 'failed-precondition') {
-                            console.log("可能需要建立索引，請查看 Console 的連結");
+                            console.log("需要建立索引");
                         }
                     });
 
@@ -400,37 +405,29 @@
                 const updatedList = projectToUpdate[listName].map(item => 
                     item.id === itemId ? { ...item, [field]: value } : item
                 );
-                window.db.collection('projects').doc(currentProjectId).update({
-                    [listName]: updatedList,
-                    lastUpdated: Date.now()
-                });
-            }, [currentProjectId, projects]);
+                updateToFirestore(currentProjectId, { [listName]: updatedList });
+            }, [currentProjectId, projects, updateToFirestore]);
 
             const addListItem = useCallback((listName, newItem) => {
                 const projectToUpdate = projects.find(p => p.id === currentProjectId);
                 if (!projectToUpdate) return;
                 const updatedList = [...projectToUpdate[listName], { ...newItem, id: generateId() }];
-                window.db.collection('projects').doc(currentProjectId).update({
-                    [listName]: updatedList,
-                    lastUpdated: Date.now()
-                });
-            }, [currentProjectId, projects]);
+                updateToFirestore(currentProjectId, { [listName]: updatedList });
+            }, [currentProjectId, projects, updateToFirestore]);
 
             const removeListItem = useCallback((listName, itemId) => {
                 const projectToUpdate = projects.find(p => p.id === currentProjectId);
                 if (!projectToUpdate) return;
                 const updatedList = projectToUpdate[listName].filter(i => i.id !== itemId);
-                window.db.collection('projects').doc(currentProjectId).update({
-                    [listName]: updatedList,
-                    lastUpdated: Date.now()
-                });
-            }, [currentProjectId, projects]);
+                updateToFirestore(currentProjectId, { [listName]: updatedList });
+            }, [currentProjectId, projects, updateToFirestore]);
 
             // 計算邏輯
             const { 
                 projectName, contractQty, unitPrice, paymentRequests, deductions, 
                 deliveries, unusedInventory, projectedArea, wallArea, 
-                subPayments, glueBuckets, tapeWideRolls, tapeNarrowRolls, shippingCost 
+                subPayments, glueBuckets, tapeWideRolls, tapeNarrowRolls, shippingCost,
+                lastUpdated, lastUpdatedBy 
             } = currentProject;
 
             const GLUE_PRICE = 1680;
@@ -467,11 +464,14 @@
             return (
                 <div className="max-w-4xl mx-auto pb-20 p-4 sm:p-6">
                     <header className="mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
-                        <div>
-                            <h1 className="text-2xl font-bold text-slate-800">隔音墊施工計算</h1>
-                            <p className="text-xs text-slate-500 mt-1">
-                                已登入: {user.displayName || user.email}
-                            </p>
+                        <div className="flex items-center gap-3">
+                            <div className="bg-purple-100 p-2 rounded-full"><Users className="text-purple-600"/></div>
+                            <div>
+                                <h1 className="text-2xl font-bold text-slate-800">隔音墊施工計算</h1>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    團隊協作模式 • {user.displayName || user.email}
+                                </p>
+                            </div>
                         </div>
                         <button onClick={handleLogout} className="text-sm flex items-center gap-1 text-slate-500 hover:text-slate-800 border px-3 py-1.5 rounded-full hover:bg-white transition-all">
                             <LogOut size={16} /> 登出
@@ -491,16 +491,23 @@
                         >
                             {projects.length === 0 && <option value="" disabled>無專案</option>}
                             {projects.map(p => (
-                                <option key={p.id} value={p.id}>{p.projectName} ({new Date(p.lastUpdated).toLocaleDateString()})</option>
+                                <option key={p.id} value={p.id}>
+                                    {p.projectName} {p.lastUpdatedBy ? `(${p.lastUpdatedBy})` : ''} - {new Date(p.lastUpdated).toLocaleDateString()}
+                                </option>
                             ))}
                         </select>
                         <div className="flex gap-2 mt-2 md:mt-0 w-full md:w-auto justify-end">
                             <button onClick={() => handleCreateProject()} className="flex items-center gap-1 text-sm bg-purple-500 text-white px-3 py-2 rounded hover:bg-purple-600 shadow-sm"><Plus size={16}/> 新增</button>
-                            <button onClick={() => handleDeleteProject(currentProjectId)} className="flex items-center gap-1 text-sm bg-white border border-red-200 text-red-500 px-3 py-2 rounded hover:bg-red-50" disabled={projects.length <= 0}><Trash2 size={16}/> 刪除</button>
+                            <button onClick={() => handleDeleteProject(currentProjectId)} className="flex items-center gap-1 text-sm bg-white border border-red-200 text-red-500 px-3 py-2 rounded hover:bg-red-50" disabled={!currentProjectId}><Trash2 size={16}/> 刪除</button>
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-xl shadow p-6 mb-6 border border-slate-200">
+                    <div className="bg-white rounded-xl shadow p-6 mb-6 border border-slate-200 relative">
+                        {/* 顯示最後更新者 */}
+                        <div className="absolute top-4 right-4 text-xs text-slate-400">
+                           最後編輯: {lastUpdatedBy || '未知'} ({new Date(lastUpdated).toLocaleString()})
+                        </div>
+
                         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">專案名稱</label>
                         <input 
                             type="text" 
