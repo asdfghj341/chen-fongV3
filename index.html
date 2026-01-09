@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>隔音墊施工計算 - 網路同步版</title>
+    <title>隔音墊施工計算 - 雲端登入版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -13,6 +13,7 @@
 
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
     
     <script>
         // 您的 Firebase 網站應用程式設定
@@ -25,32 +26,34 @@
             appId: "1:251834902996:web:b9b7fd80823c1a216b8e41"
         };
 
-        // 初始化 Firebase 應用程式和 Firestore
-        window.firebaseApp = firebase.initializeApp(firebaseConfig);
-        window.db = firebaseApp.firestore();
-
+        // 初始化 Firebase
+        if (!firebase.apps.length) {
+            window.firebaseApp = firebase.initializeApp(firebaseConfig);
+        } else {
+            window.firebaseApp = firebase.app();
+        }
+        window.db = firebase.firestore();
+        window.auth = firebase.auth(); // 初始化 Auth
     </script>
 
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-        /* 錯誤訊息樣式 */
         #error-display { display: none; padding: 20px; background: #fee2e2; color: #991b1b; border: 1px solid #f87171; margin: 20px; border-radius: 8px; }
+        .login-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
     </style>
 </head>
-<body class="bg-slate-100 min-h-screen p-4 sm:p-6">
+<body class="bg-slate-100 min-h-screen">
 
     <div id="error-display"></div>
     <div id="root"></div>
 
     <script>
-        // 全域錯誤捕捉，若畫面空白會顯示錯誤原因
         window.onerror = function(message, source, lineno, colno, error) {
             const display = document.getElementById('error-display');
             display.style.display = 'block';
             display.innerHTML = `<strong>發生錯誤：</strong><br>${message}<br><small>${source}:${lineno}</small>`;
         };
 
-        // 傳統啟動函數，確保應用程式在頁面載入後啟動
         function startApp() {
             const container = document.getElementById('root');
             if (container && window.ReactDOM && window.ReactDOM.createRoot && window.SoundproofingCalculator) {
@@ -62,9 +65,9 @@
     </script>
 
     <script type="text/babel">
-        // --- 輔助函數和常量定義 ---
         const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
+        // --- 輔助函數 ---
         const parseNum = (val) => {
             if (!val) return 0;
             const num = parseFloat(val);
@@ -74,7 +77,7 @@
         const formatNumber = (num) => new Intl.NumberFormat('zh-TW').format(num);
         const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
-        // --- ICON Components ---
+        // --- ICONS ---
         const IconBase = ({ d, color="currentColor" }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d={d} />
@@ -88,19 +91,25 @@
         const TrendingUp = () => <IconBase d="M23 6l-9.5 9.5-5-5L1 18" />;
         const Plus = () => <IconBase d="M12 5v14M5 12h14" />;
         const FolderOpen = () => <IconBase d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />;
-        const FileText = () => <IconBase d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8" />; // Icon for PDF
+        const LogOut = () => <IconBase d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9" />;
+        const GoogleIcon = () => (
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
+        );
 
-        // --- 資料清理函式 ---
+        // --- 資料處理 ---
         const sanitizeProjects = (projects) => {
             if (!Array.isArray(projects)) return [];
             return projects.map(p => ({
                 ...p,
-                // 確保列表項目有 id
                 paymentRequests: (p.paymentRequests || []).map(i => ({...i, id: i.id || generateId(), value: i.value || ''})),
                 deductions: (p.deductions || []).map(i => ({...i, id: i.id || generateId(), value: i.value || ''})),
                 deliveries: (p.deliveries || []).map(i => ({...i, id: i.id || generateId(), value: i.value || ''})),
                 subPayments: (p.subPayments || []).map(i => ({...i, id: i.id || generateId(), value: i.value || ''})),
-                // 確保數值欄位是字串，以符合 input 的 value
                 contractQty: p.contractQty?.toString() || '',
                 unitPrice: p.unitPrice?.toString() || '',
                 unusedInventory: p.unusedInventory?.toString() || '',
@@ -113,8 +122,9 @@
             }));
         };
 
-        const createInitialState = (projectName = '新專案') => ({
+        const createInitialState = (projectName = '新專案', uid = null) => ({
             projectName: projectName, 
+            uid: uid, // 綁定使用者
             contractQty: '',
             unitPrice: '',
             paymentRequests: [{ id: generateId(), value: '' }],
@@ -131,7 +141,7 @@
             lastUpdated: Date.now(),
         });
 
-        // --- UI 元件 (保持不變) ---
+        // --- 元件 ---
         const Card = ({ title, icon: Icon, children }) => (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
                 <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center gap-2">
@@ -247,162 +257,176 @@
             );
         };
 
-        // 主程式 (使用 Firestore 進行資料同步)
+        // --- 登入畫面元件 ---
+        const LoginScreen = ({ onLogin }) => (
+            <div className="min-h-screen login-bg flex flex-col items-center justify-center p-4">
+                <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center">
+                    <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <Calculator />
+                    </div>
+                    <h1 className="text-2xl font-bold text-slate-800 mb-2">隔音墊施工計算</h1>
+                    <p className="text-slate-500 mb-8">請登入以存取您的私人專案資料</p>
+                    
+                    <button 
+                        onClick={onLogin}
+                        className="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 text-slate-700 font-semibold py-3 px-4 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
+                    >
+                        <GoogleIcon />
+                        使用 Google 帳號登入
+                    </button>
+                    <p className="text-xs text-slate-400 mt-6">
+                        資料將安全儲存於 Google Cloud
+                    </p>
+                </div>
+            </div>
+        );
+
+        // --- 主應用程式 ---
         window.SoundproofingCalculator = function SoundproofingCalculator() {
-            // --- State ---
+            // User State
+            const [user, setUser] = useState(null);
+            const [loadingAuth, setLoadingAuth] = useState(true);
+
+            // Project State
             const [projects, setProjects] = useState([]);
             const [currentProjectId, setCurrentProjectId] = useState(null);
-            // ⭐ 新增：用於暫存專案名稱的本地狀態，解決輸入時跳動問題
             const [tempProjectName, setTempProjectName] = useState(''); 
             
-            // --- 資料庫操作函數 (改寫為操作 Firestore) ---
+            // 監聽登入狀態
+            useEffect(() => {
+                const unsubscribe = window.auth.onAuthStateChanged(currentUser => {
+                    setUser(currentUser);
+                    setLoadingAuth(false);
+                });
+                return () => unsubscribe();
+            }, []);
 
-            // 新增專案到 Firestore
+            // 登入功能
+            const handleLogin = () => {
+                const provider = new firebase.auth.GoogleAuthProvider();
+                window.auth.signInWithPopup(provider).catch(error => {
+                    alert("登入失敗: " + error.message);
+                });
+            };
+
+            // 登出功能
+            const handleLogout = () => {
+                window.auth.signOut();
+                setProjects([]); // 清空本地資料
+            };
+
+            // 新增專案 (自動綁定 UID)
             const handleCreateProject = useCallback((name = `新專案 ${projects.length + 1}`) => {
-                const newProjectData = createInitialState(name);
+                if (!user) return;
+                const newProjectData = createInitialState(name, user.uid); // 寫入 uid
                 window.db.collection('projects').add(newProjectData)
                     .then(docRef => {
-                        console.log("Document successfully written with ID: ", docRef.id);
-                        setCurrentProjectId(docRef.id); // 確保切換到新專案
+                        console.log("Created:", docRef.id);
+                        setCurrentProjectId(docRef.id);
                     })
                     .catch(error => console.error("新增專案失敗:", error));
-            }, [projects.length]);
+            }, [projects.length, user]);
 
-            // 從 Firestore 刪除專案
             const handleDeleteProject = (id) => {
-                if (!confirm("確定要刪除此專案嗎？所有使用者將無法復原此資料。")) return;
+                if (!confirm("確定要刪除此專案嗎？刪除後無法復原。")) return;
                 window.db.collection('projects').doc(id).delete()
-                    .then(() => console.log("Document successfully deleted!"))
                     .catch(error => console.error("刪除專案失敗:", error));
             };
 
-            // 更新單一欄位到 Firestore (用於非名稱欄位，或 Debounce 寫入時調用)
             const updateSingleFieldToFirestore = useCallback((field, value) => {
                 if (!currentProjectId) return;
-                
-                const updateData = { 
+                window.db.collection('projects').doc(currentProjectId).update({ 
                     [field]: value, 
                     lastUpdated: Date.now() 
-                };
-                
-                window.db.collection('projects').doc(currentProjectId).update(updateData)
-                    .catch(error => console.error(`更新欄位 ${field} 失敗:`, error));
+                }).catch(error => console.error(`更新失敗:`, error));
             }, [currentProjectId]);
 
-            // --- 載入與監聽邏輯 ---
-            
-            // 1. 初始化：從 Firestore 監聽資料 (實現多使用者同步的關鍵)
+            // 監聽 Firestore (只抓取自己的資料)
             useEffect(() => {
-                // 訂閱 'projects' collection 的變動
+                if (!user) return; // 未登入不動作
+
                 const unsubscribe = window.db.collection('projects')
-                    .orderBy('lastUpdated', 'desc') // 依照更新時間排序
+                    .where('uid', '==', user.uid) // 關鍵：只查詢屬於目前使用者的資料
+                    .orderBy('lastUpdated', 'desc')
                     .onSnapshot(snapshot => {
                         const loadedProjects = snapshot.docs.map(doc => ({
                             id: doc.id,
                             ...doc.data()
                         }));
                         const sanitized = sanitizeProjects(loadedProjects);
-
                         setProjects(sanitized);
 
-                        // 處理專案選擇
                         if (sanitized.length > 0) {
-                            // 嘗試保持當前專案，否則選第一個
                             if (!currentProjectId || !sanitized.find(p => p.id === currentProjectId)) {
                                 setCurrentProjectId(sanitized[0].id);
                             }
                         } else {
-                            // 資料庫為空時，自動新增一個
-                            handleCreateProject('我的第一個同步專案'); 
+                            // 如果是新用戶，沒有專案，自動建立一個
+                            handleCreateProject('我的第一個專案'); 
                         }
                     }, error => {
-                        console.error("Firestore 即時監聽失敗:", error);
-                        alert("無法連接到資料庫，請檢查您的網路或 Firebase 設定。");
+                        console.error("Firestore 監聽失敗:", error);
+                        // 處理索引尚未建立的情況 (有時 Firebase 需要幾分鐘建立複合索引)
+                        if (error.code === 'failed-precondition') {
+                            console.log("可能需要建立索引，請查看 Console 的連結");
+                        }
                     });
 
                 return () => unsubscribe(); 
-            }, [currentProjectId]); 
+            }, [currentProjectId, user]); 
 
-            // 取得當前正在編輯的專案物件
             const currentProject = useMemo(() => {
                 return projects.find(p => p.id === currentProjectId) || createInitialState('載入中...');
             }, [projects, currentProjectId]);
 
-            // ⭐ 解決跳動問題的核心：將雲端名稱同步到本地狀態
             useEffect(() => {
                 setTempProjectName(currentProject.projectName);
             }, [currentProject.projectName]); 
 
-            // ⭐ Debounce 邏輯：在使用者停止輸入後，延遲寫入 Firestore
             useEffect(() => {
-                // 如果專案 ID 不存在 或 本地名稱與雲端名稱相同，則不需寫入
                 if (!currentProjectId || tempProjectName === currentProject.projectName) return;
-                
                 const handler = setTimeout(() => {
                     updateSingleFieldToFirestore('projectName', tempProjectName);
-                }, 500); // 延遲 500 毫秒
-                
-                return () => {
-                    clearTimeout(handler); // 在下次輸入前清除計時器
-                };
+                }, 500);
+                return () => clearTimeout(handler);
             }, [tempProjectName, currentProject.projectName, currentProjectId, updateSingleFieldToFirestore]);
 
 
-            // --- 更新當前專案資料的通用函數 (寫入 Firestore) ---
-
-            // 更新單一欄位 (僅用於非名稱欄位)
             const updateProjectField = updateSingleFieldToFirestore;
 
-            // 更新列表欄位 
             const updateListField = useCallback((listName, itemId, field, value) => {
                 const projectToUpdate = projects.find(p => p.id === currentProjectId);
                 if (!projectToUpdate) return;
-
                 const updatedList = projectToUpdate[listName].map(item => 
                     item.id === itemId ? { ...item, [field]: value } : item
                 );
-                
                 window.db.collection('projects').doc(currentProjectId).update({
                     [listName]: updatedList,
                     lastUpdated: Date.now()
-                }).catch(error => console.error(`更新列表 ${listName} 失敗:`, error));
+                });
             }, [currentProjectId, projects]);
 
-            // 新增列表項目
             const addListItem = useCallback((listName, newItem) => {
                 const projectToUpdate = projects.find(p => p.id === currentProjectId);
                 if (!projectToUpdate) return;
-                
                 const updatedList = [...projectToUpdate[listName], { ...newItem, id: generateId() }];
-                
                 window.db.collection('projects').doc(currentProjectId).update({
                     [listName]: updatedList,
                     lastUpdated: Date.now()
-                }).catch(error => console.error(`新增列表項 ${listName} 失敗:`, error));
+                });
             }, [currentProjectId, projects]);
 
-            // 移除列表項目
             const removeListItem = useCallback((listName, itemId) => {
                 const projectToUpdate = projects.find(p => p.id === currentProjectId);
                 if (!projectToUpdate) return;
-                
                 const updatedList = projectToUpdate[listName].filter(i => i.id !== itemId);
-                
                 window.db.collection('projects').doc(currentProjectId).update({
                     [listName]: updatedList,
                     lastUpdated: Date.now()
-                }).catch(error => console.error(`移除列表項 ${listName} 失敗:`, error));
+                });
             }, [currentProjectId, projects]);
 
-            // 硬體重置 (改為提示)
-            const handleHardReset = () => {
-                if(confirm("這將會清除 Firebase 資料庫中所有專案並重置為初始狀態！確定嗎？")) {
-                    alert("由於安全考量，我們不能在這裡一鍵清除所有資料。請手動登入 Firebase 控制台並刪除 'projects' Collection。隨後重新整理頁面即可恢復。");
-                }
-            };
-
-
-            // --- 計算邏輯 (Derived State) (不變) ---
+            // 計算邏輯
             const { 
                 projectName, contractQty, unitPrice, paymentRequests, deductions, 
                 deliveries, unusedInventory, projectedArea, wallArea, 
@@ -431,12 +455,27 @@
             const grossProfit = totalPaymentAmount - totalCost; 
             const grossMargin = totalPaymentAmount > 0 ? (grossProfit / totalPaymentAmount) * 100 : 0;
 
-            // --- Render ---
+            // --- 判斷渲染狀態 ---
+            if (loadingAuth) {
+                return <div className="min-h-screen flex items-center justify-center text-slate-500">載入中...</div>;
+            }
+
+            if (!user) {
+                return <LoginScreen onLogin={handleLogin} />;
+            }
+
             return (
-                <div className="max-w-4xl mx-auto pb-20">
-                    <header className="mb-6 text-center">
-                        <h1 className="text-3xl font-bold text-slate-800">隔音墊施工計算 (網路同步版)</h1>
-                        <p className="text-slate-500 mt-2">資料儲存於 Google Firebase (多使用者互通)</p>
+                <div className="max-w-4xl mx-auto pb-20 p-4 sm:p-6">
+                    <header className="mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-800">隔音墊施工計算</h1>
+                            <p className="text-xs text-slate-500 mt-1">
+                                已登入: {user.displayName || user.email}
+                            </p>
+                        </div>
+                        <button onClick={handleLogout} className="text-sm flex items-center gap-1 text-slate-500 hover:text-slate-800 border px-3 py-1.5 rounded-full hover:bg-white transition-all">
+                            <LogOut size={16} /> 登出
+                        </button>
                     </header>
                     
                     {/* 專案選擇區 */}
@@ -446,30 +485,28 @@
                             <label className="text-sm font-semibold text-slate-700">切換專案:</label>
                         </div>
                         <select 
-                            className="flex-grow p-2 border border-slate-300 rounded-md shadow-sm"
+                            className="flex-grow p-2 border border-slate-300 rounded-md shadow-sm w-full md:w-auto"
                             value={currentProjectId || ''}
                             onChange={(e) => setCurrentProjectId(e.target.value)}
                         >
-                            {projects.length === 0 && <option value="" disabled>載入專案中...</option>}
+                            {projects.length === 0 && <option value="" disabled>無專案</option>}
                             {projects.map(p => (
-                                <option key={p.id} value={p.id}>{p.projectName} (最後更新: {new Date(p.lastUpdated).toLocaleString()})</option>
+                                <option key={p.id} value={p.id}>{p.projectName} ({new Date(p.lastUpdated).toLocaleDateString()})</option>
                             ))}
                         </select>
-                        <div className="flex gap-2 mt-2 md:mt-0">
-                            <button onClick={() => handleCreateProject()} className="flex items-center gap-1 text-sm bg-purple-500 text-white px-3 py-2 rounded hover:bg-purple-600"><Plus size={16}/> 新增</button>
-                            <button onClick={() => handleDeleteProject(currentProjectId)} className="flex items-center gap-1 text-sm bg-red-500 text-white px-3 py-2 rounded hover:bg-red-600" disabled={projects.length <= 1}><Trash2 size={16}/> 刪除</button>
+                        <div className="flex gap-2 mt-2 md:mt-0 w-full md:w-auto justify-end">
+                            <button onClick={() => handleCreateProject()} className="flex items-center gap-1 text-sm bg-purple-500 text-white px-3 py-2 rounded hover:bg-purple-600 shadow-sm"><Plus size={16}/> 新增</button>
+                            <button onClick={() => handleDeleteProject(currentProjectId)} className="flex items-center gap-1 text-sm bg-white border border-red-200 text-red-500 px-3 py-2 rounded hover:bg-red-50" disabled={projects.length <= 0}><Trash2 size={16}/> 刪除</button>
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-xl shadow p-6 mb-6">
-                        <label className="block text-lg font-bold mb-2">專案名稱</label>
+                    <div className="bg-white rounded-xl shadow p-6 mb-6 border border-slate-200">
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">專案名稱</label>
                         <input 
                             type="text" 
-                            // ⭐ 這裡改用本地狀態
                             value={tempProjectName} 
-                            // ⭐ 這裡只更新本地狀態
                             onChange={(e) => setTempProjectName(e.target.value)} 
-                            className="block w-full rounded border p-3 text-lg" 
+                            className="block w-full rounded border-0 border-b-2 border-slate-200 p-0 py-2 text-xl font-bold focus:ring-0 focus:border-blue-500 transition-colors" 
                             placeholder="輸入專案名稱..." 
                         />
                     </div>
@@ -631,10 +668,6 @@
                                 </div>
                             </div>
                         </Card>
-                    </div>
-
-                    <div className="mt-12 text-center border-t pt-6">
-                        <button onClick={handleHardReset} className="text-xs text-red-400 underline hover:text-red-600">重置所有資料 (請勿輕易使用，資料會遺失)</button>
                     </div>
                 </div>
             );
