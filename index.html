@@ -299,12 +299,10 @@
                 return () => unsubscribe();
             }, []);
 
-            // 登入
+            // 登入 - 修改處：改用 Redirect 模式
             const handleLogin = () => {
                 const provider = new firebase.auth.GoogleAuthProvider();
-                window.auth.signInWithPopup(provider).catch(error => {
-                    alert("登入失敗: " + error.message);
-                });
+                window.auth.signInWithRedirect(provider);
             };
 
             // 登出
