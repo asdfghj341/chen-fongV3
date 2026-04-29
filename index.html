@@ -16,7 +16,6 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
     
     <script>
-        // 您的 Firebase 設定
         const firebaseConfig = {
             apiKey: "AIzaSyAOL5kA2POWbfGLULAwERTxzetCqVo_Xx8",
             authDomain: "chen-fongv1.firebaseapp.com",
@@ -126,7 +125,7 @@
         const createInitialState = (projectName = '新專案', uid = null, userName = '') => ({
             projectName: projectName, 
             uid: uid, 
-            lastUpdatedBy: userName, // 新增：記錄創建者/修改者
+            lastUpdatedBy: userName,
             contractQty: '',
             unitPrice: '',
             paymentRequests: [{ id: generateId(), value: '' }],
@@ -143,7 +142,7 @@
             lastUpdated: Date.now(),
         });
 
-        // --- 元件 (保持不變) ---
+        // --- 元件 ---
         const Card = ({ title, icon: Icon, children }) => (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
                 <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center gap-2">
@@ -159,7 +158,7 @@
         );
 
         const SimpleInput = ({ label, value, onChange, type = "number", placeholder = "", suffix = "" }) => (
-            <div className="mb-4">
+            <div className="mb-4 text-left">
                 <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
                 <div className="relative rounded-md shadow-sm">
                     <input
@@ -184,7 +183,7 @@
             
             return (
                 <div className="flex flex-col gap-1 pb-3 border-b border-slate-100 last:border-0">
-                    <div className="flex gap-2 items-end">
+                    <div className="flex gap-2 items-end text-left">
                         {dateField && (
                             <div className="w-1/3">
                                 <label className="block text-xs text-slate-500 mb-1">日期</label>
@@ -232,7 +231,7 @@
 
         const DeductionItem = ({ item, updateRow, onRemove }) => { 
             return (
-                <div className="flex gap-2 items-end mb-3">
+                <div className="flex gap-2 items-end mb-3 text-left">
                     <div className="flex-1">
                         <label className="block text-xs text-slate-500 mb-1">項目名稱</label>
                         <input
@@ -281,16 +280,12 @@
         );
 
         window.SoundproofingCalculator = function SoundproofingCalculator() {
-            // User State
             const [user, setUser] = useState(null);
             const [loadingAuth, setLoadingAuth] = useState(true);
-
-            // Project State
             const [projects, setProjects] = useState([]);
             const [currentProjectId, setCurrentProjectId] = useState(null);
             const [tempProjectName, setTempProjectName] = useState(''); 
             
-            // 監聽登入狀態
             useEffect(() => {
                 const unsubscribe = window.auth.onAuthStateChanged(currentUser => {
                     setUser(currentUser);
@@ -299,22 +294,19 @@
                 return () => unsubscribe();
             }, []);
 
-            // 登入 - 修改處：改用 Redirect 模式
             const handleLogin = () => {
                 const provider = new firebase.auth.GoogleAuthProvider();
                 window.auth.signInWithRedirect(provider);
             };
 
-            // 登出
             const handleLogout = () => {
                 window.auth.signOut();
                 setProjects([]); 
             };
 
-            // 新增專案 (共用模式)
             const handleCreateProject = useCallback((name = `新專案 ${projects.length + 1}`) => {
                 if (!user) return;
-                const newProjectData = createInitialState(name, user.uid, getUserName(user)); // 記錄創建者
+                const newProjectData = createInitialState(name, user.uid, getUserName(user));
                 window.db.collection('projects').add(newProjectData)
                     .then(docRef => {
                         setCurrentProjectId(docRef.id);
@@ -328,13 +320,12 @@
                     .catch(error => console.error("刪除專案失敗:", error));
             };
 
-            // 通用更新函數 (會記錄 lastUpdatedBy)
             const updateToFirestore = useCallback((docId, data) => {
                 if (!user) return;
                 window.db.collection('projects').doc(docId).update({ 
                     ...data, 
                     lastUpdated: Date.now(),
-                    lastUpdatedBy: getUserName(user) // 自動記錄是誰改的
+                    lastUpdatedBy: getUserName(user)
                 }).catch(error => console.error(`更新失敗:`, error));
             }, [user]);
 
@@ -343,11 +334,9 @@
                 updateToFirestore(currentProjectId, { [field]: value });
             }, [currentProjectId, updateToFirestore]);
 
-            // 監聽 Firestore (移除 uid 過濾，實現共享)
             useEffect(() => {
                 if (!user) return;
 
-                // 修改：移除 .where('uid', '==', user.uid)，實現所有用戶資料共享
                 const unsubscribe = window.db.collection('projects')
                     .orderBy('lastUpdated', 'desc')
                     .onSnapshot(snapshot => {
@@ -362,17 +351,9 @@
                             if (!currentProjectId || !sanitized.find(p => p.id === currentProjectId)) {
                                 setCurrentProjectId(sanitized[0].id);
                             }
-                        } else {
-                            if (loadedProjects.length === 0) {
-                                // 只有當整個資料庫都空的時候才自動新增，避免每個新進來的人都自動新增
-                                // 這裡可以留空，或是給個提示
-                            }
                         }
                     }, error => {
                         console.error("Firestore 監聽失敗:", error);
-                        if (error.code === 'failed-precondition') {
-                            console.log("需要建立索引");
-                        }
                     });
 
                 return () => unsubscribe(); 
@@ -393,7 +374,6 @@
                 }, 500);
                 return () => clearTimeout(handler);
             }, [tempProjectName, currentProject.projectName, currentProjectId, updateSingleFieldToFirestore]);
-
 
             const updateProjectField = updateSingleFieldToFirestore;
 
@@ -420,7 +400,6 @@
                 updateToFirestore(currentProjectId, { [listName]: updatedList });
             }, [currentProjectId, projects, updateToFirestore]);
 
-            // 計算邏輯
             const { 
                 projectName, contractQty, unitPrice, paymentRequests, deductions, 
                 deliveries, unusedInventory, projectedArea, wallArea, 
@@ -450,7 +429,6 @@
             const grossProfit = totalPaymentAmount - totalCost; 
             const grossMargin = totalPaymentAmount > 0 ? (grossProfit / totalPaymentAmount) * 100 : 0;
 
-            // --- 判斷渲染狀態 ---
             if (loadingAuth) {
                 return <div className="min-h-screen flex items-center justify-center text-slate-500">載入中...</div>;
             }
@@ -460,11 +438,11 @@
             }
 
             return (
-                <div className="max-w-4xl mx-auto pb-20 p-4 sm:p-6">
+                <div className="max-w-4xl mx-auto pb-20 p-4 sm:p-6 text-center">
                     <header className="mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
                         <div className="flex items-center gap-3">
                             <div className="bg-purple-100 p-2 rounded-full"><Users className="text-purple-600"/></div>
-                            <div>
+                            <div className="text-left">
                                 <h1 className="text-2xl font-bold text-slate-800">隔音墊施工計算</h1>
                                 <p className="text-xs text-slate-500 mt-1">
                                     團隊協作模式 • {user.displayName || user.email}
@@ -476,7 +454,6 @@
                         </button>
                     </header>
                     
-                    {/* 專案選擇區 */}
                     <div className="flex flex-col md:flex-row gap-3 items-start md:items-center bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
                         <div className="flex items-center gap-2 w-full md:w-auto">
                             <FolderOpen className="text-purple-600" />
@@ -490,7 +467,7 @@
                             {projects.length === 0 && <option value="" disabled>無專案</option>}
                             {projects.map(p => (
                                 <option key={p.id} value={p.id}>
-                                    {p.projectName} {p.lastUpdatedBy ? `(${p.lastUpdatedBy})` : ''} - {new Date(p.lastUpdated).toLocaleDateString()}
+                                    {p.projectName} {p.lastUpdatedBy ? `(${p.lastUpdatedBy})` : ''}
                                 </option>
                             ))}
                         </select>
@@ -500,12 +477,10 @@
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-xl shadow p-6 mb-6 border border-slate-200 relative">
-                        {/* 顯示最後更新者 */}
+                    <div className="bg-white rounded-xl shadow p-6 mb-6 border border-slate-200 relative text-left">
                         <div className="absolute top-4 right-4 text-xs text-slate-400">
                            最後編輯: {lastUpdatedBy || '未知'} ({new Date(lastUpdated).toLocaleString()})
                         </div>
-
                         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">專案名稱</label>
                         <input 
                             type="text" 
@@ -524,7 +499,7 @@
                                     <SectionHeader title="合約基礎資訊" />
                                     <SimpleInput label="合約數量" value={contractQty} onChange={(v) => updateProjectField('contractQty', v)} suffix="坪/m²" />
                                     <SimpleInput label="本案單價" value={unitPrice} onChange={(v) => updateProjectField('unitPrice', v)} suffix="元" />
-                                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                                    <div className="mt-4 p-4 bg-blue-50 rounded-lg text-left">
                                         <div className="text-sm text-blue-800 font-semibold mb-1">目前總營收</div>
                                         <div className="text-2xl font-bold text-blue-600">{formatCurrency(totalPaymentAmount)}</div>
                                         <div className="text-xs text-blue-400 mt-1">數量總計: {formatNumber(totalPaymentQty)}</div>
@@ -535,7 +510,7 @@
                                 </div>
                                 <div>
                                     <SectionHeader title="請款進度" />
-                                    {!parseNum(unitPrice) && (<div className="text-xs text-red-500 mb-2">* 請輸入單價以計算金額</div>)}
+                                    {!parseNum(unitPrice) && (<div className="text-xs text-red-500 mb-2 text-left">* 請輸入單價以計算金額</div>)}
                                     <DynamicList 
                                         items={paymentRequests} 
                                         onAdd={() => addListItem('paymentRequests', { value: '' })}
@@ -573,32 +548,54 @@
                                         valueField="value"
                                         labelPrefix="進貨" dateField="date" 
                                     />
-                                    <div className="text-sm font-bold text-slate-700 bg-slate-100 p-2 rounded">累積進貨: {formatNumber(totalDelivered)}</div>
+                                    <div className="text-sm font-bold text-slate-700 bg-slate-100 p-2 rounded text-left">累積進貨: {formatNumber(totalDelivered)}</div>
                                 </div>
                                 <div>
                                     <SectionHeader title="現場盤點" />
                                     <SimpleInput label="未使用數量 (卷)" value={unusedInventory} onChange={(v) => updateProjectField('unusedInventory', v)} />
-                                    <div className="bg-orange-50 p-4 rounded-lg mt-4"><div className="text-sm text-orange-800 font-semibold mb-1">實際使用量</div><div className="text-2xl font-bold text-orange-600">{formatNumber(totalUsedInventory)}</div></div>
+                                    <div className="bg-orange-50 p-4 rounded-lg mt-4 text-left"><div className="text-sm text-orange-800 font-semibold mb-1">實際使用量</div><div className="text-2xl font-bold text-orange-600">{formatNumber(totalUsedInventory)}</div></div>
                                 </div>
                             </div>
                         </Card>
 
-                        {/* 3. 損耗 */}
+                        {/* 3. 損耗 - 已修改包含公式列出 */}
                         <Card title="第三大項：損耗計算" icon={Activity}>
-                            <div className="grid md:grid-cols-4 gap-4">
+                            <div className="grid md:grid-cols-4 gap-4 mb-4">
                                 <SimpleInput label="投影面積" value={projectedArea} onChange={(v) => updateProjectField('projectedArea', v)} />
                                 <SimpleInput label="上牆面積" value={wallArea} onChange={(v) => updateProjectField('wallArea', v)} />
-                                <div className="mb-4"><label className="block text-sm font-medium text-slate-700 mb-1">總面積 (供料)</label><div className="bg-slate-100 border p-2 rounded text-lg font-bold text-blue-700">{formatNumber(totalArea)}</div></div>
-                                <div className="mb-4"><label className="block text-sm font-medium text-slate-700 mb-1">損耗面積</label><div className="bg-slate-100 border p-2 rounded text-lg font-bold text-orange-700">{formatNumber(wasteAreaDisplay)}</div></div>
+                                <div className="mb-4 text-left">
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">總面積 (供料)</label>
+                                    <div className="bg-slate-100 border p-2 rounded text-lg font-bold text-blue-700">{formatNumber(totalArea)}</div>
+                                </div>
+                                <div className="mb-4 text-left">
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">剩餘損耗 (殘料)</label>
+                                    <div className="bg-slate-100 border p-2 rounded text-lg font-bold text-orange-700">{formatNumber(wasteAreaDisplay)}</div>
+                                </div>
                             </div>
-                            <div className="mt-4 p-4 bg-slate-800 text-white rounded-lg flex justify-between items-center"><span className="font-semibold">總損耗率：</span><span className="text-2xl font-mono text-yellow-400">{calculatedWasteRate.toFixed(2)}%</span></div>
+
+                            {/* 公式說明區塊 */}
+                            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4 text-left">
+                                <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-tighter">損耗計算推導公式</div>
+                                <div className="text-sm text-slate-600 font-mono space-y-1">
+                                    <div>1. 總損耗面積 = 上牆面積 ({formatNumber(wallArea)}) + 剩餘損耗 ({formatNumber(wasteAreaDisplay)})</div>
+                                    <div>2. 總損耗率 = (總損耗面積 / 總面積) &times; 100%</div>
+                                </div>
+                            </div>
+
+                            <div className="p-4 bg-slate-800 text-white rounded-lg flex flex-col md:flex-row justify-between items-center gap-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-slate-300">總損耗率結果：</span>
+                                    <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-400">含上牆與殘料</span>
+                                </div>
+                                <span className="text-3xl font-mono text-yellow-400">{calculatedWasteRate.toFixed(2)}%</span>
+                            </div>
                         </Card>
 
                         {/* 4. 成本 */}
                         <Card title="第四大項：成本分析" icon={Calculator}>
                             <div className="grid md:grid-cols-2 gap-8">
                                 <div>
-                                    <SectionHeader title="小恩施作費用" />
+                                    <SectionHeader title="施作費用" />
                                     <DynamicList 
                                         items={subPayments} 
                                         onAdd={() => addListItem('subPayments', { value: '' })}
@@ -611,14 +608,13 @@
                                 </div>
                                 <div>
                                     <SectionHeader title="材料成本" />
-                                    <div className="flex gap-4 items-center mb-2"><div className="flex-1 text-sm">膠水 ({formatCurrency(GLUE_PRICE)})</div><div className="w-24"><SimpleInput value={glueBuckets} onChange={(v) => updateProjectField('glueBuckets', v)} placeholder="數量" /></div></div>
-                                    <div className="flex gap-4 items-center mb-2"><div className="flex-1 text-sm">寬版膠帶 ({formatCurrency(TAPE_WIDE_PRICE)})</div><div className="w-24"><SimpleInput value={tapeWideRolls} onChange={(v) => updateProjectField('tapeWideRolls', v)} placeholder="數量" /></div></div>
-                                    <div className="flex gap-4 items-center mb-2"><div className="flex-1 text-sm">窄版膠帶 ({formatCurrency(TAPE_NARROW_PRICE)})</div><div className="w-24"><SimpleInput value={tapeNarrowRolls} onChange={(v) => updateProjectField('tapeNarrowRolls', v)} placeholder="數量" /></div></div>
+                                    <div className="flex gap-4 items-center mb-2"><div className="flex-1 text-sm text-left">膠水 ({formatCurrency(GLUE_PRICE)})</div><div className="w-24"><SimpleInput value={glueBuckets} onChange={(v) => updateProjectField('glueBuckets', v)} placeholder="數量" /></div></div>
+                                    <div className="flex gap-4 items-center mb-2"><div className="flex-1 text-sm text-left">寬版膠帶 ({formatCurrency(TAPE_WIDE_PRICE)})</div><div className="w-24"><SimpleInput value={tapeWideRolls} onChange={(v) => updateProjectField('tapeWideRolls', v)} placeholder="數量" /></div></div>
+                                    <div className="flex gap-4 items-center mb-2"><div className="flex-1 text-sm text-left">窄版膠帶 ({formatCurrency(TAPE_NARROW_PRICE)})</div><div className="w-24"><SimpleInput value={tapeNarrowRolls} onChange={(v) => updateProjectField('tapeNarrowRolls', v)} placeholder="數量" /></div></div>
                                     
                                     <div className="border-t pt-2 mt-2"><SimpleInput label="運費/雜項" value={shippingCost} onChange={(v) => updateProjectField('shippingCost', v)} suffix="元" /></div>
                                     
                                     <div className="text-right text-sm font-bold mt-2">耗材總計: {formatCurrency(totalMaterialMiscCost)}</div>
-                                    
                                     <div className="text-right text-sm font-bold text-blue-700 mt-2">隔音墊成本: {formatCurrency(matTotalCost)}</div>
                                     <div className="text-xs text-gray-500 text-right">
                                         = {formatNumber(totalUsedInventory)} 卷 &times; {ROLL_AREA} M²/卷 &times; {formatCurrency(MAT_COST_PER_SQM)}/M²
@@ -629,8 +625,7 @@
 
                         {/* 5. 毛利 */}
                         <Card title="第五大項：毛利分析" icon={TrendingUp}>
-                            <div className="space-y-3 text-lg">
-                                {/* Revenue */}
+                            <div className="space-y-3 text-lg text-left">
                                 <div className="flex justify-between font-semibold">
                                     <span>總營收 (請款)</span>
                                     <span>{formatCurrency(totalPaymentAmount)}</span>
@@ -638,17 +633,15 @@
 
                                 <div className="border-t border-slate-200 my-2"></div>
 
-                                {/* Cost Breakdown Section */}
                                 <div className="text-sm text-slate-600 space-y-1">
                                     <div className="font-semibold text-slate-800 mb-2">成本結構：</div>
                                     <div className="flex justify-between"><span>(-) 扣款合計</span><span>{formatCurrency(totalDeductionAmount)}</span></div>
-                                    <div className="flex justify-between"><span>(-) 小恩施作費用</span><span>{formatCurrency(totalSubPayment)}</span></div>
+                                    <div className="flex justify-between"><span>(-) 施作費用</span><span>{formatCurrency(totalSubPayment)}</span></div>
                                     <div className="flex justify-between"><span>(-) 其他耗材</span><span>{formatCurrency(totalMaterialMiscCost)}</span></div>
                                     <div className="flex justify-between"><span>(-) 運費/雜項</span><span>{formatCurrency(parseNum(shippingCost))}</span></div>
                                     <div className="flex justify-between"><span>(-) 隔音墊成本</span><span>{formatCurrency(matTotalCost)}</span></div>
                                 </div>
 
-                                {/* Total Cost Summary */}
                                 <div className="flex justify-between text-red-500 font-semibold border-t border-dashed border-slate-300 pt-2">
                                     <span>總成本合計</span>
                                     <span>-{formatCurrency(totalCost)}</span>
@@ -656,7 +649,6 @@
 
                                 <div className="border-t border-slate-400 my-3"></div>
 
-                                {/* Profit and Margin */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="bg-green-50 p-4 rounded-lg text-center">
                                         <div className="text-sm text-green-700 mb-1">毛利金額</div>
