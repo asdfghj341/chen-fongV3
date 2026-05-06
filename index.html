@@ -558,6 +558,14 @@
             const remainingContractAmount = totalContractAmount - totalPaymentAmount;
             const totalDeductionAmount = deductions.reduce((sum, curr) => sum + parseNum(curr.value), 0);
             
+            // 處理追加與超請的顯示邏輯 (絕對值轉換)
+            const isOverContractQty = remainingContractQty < 0;
+            const isOverContractAmount = remainingContractAmount < 0;
+            const absRemainingQty = Math.abs(remainingContractQty);
+            const absRemainingAmount = Math.abs(remainingContractAmount);
+            const absRemainingTax = Math.round(absRemainingAmount * 0.05);
+            const absRemainingTotal = absRemainingAmount + absRemainingTax;
+
             // 第二大項
             const totalDelivered = deliveries.reduce((acc, curr) => acc + parseNum(curr.value), 0);
             const totalUsedInventory = totalDelivered - parseNum(unusedInventory);
@@ -763,17 +771,29 @@
                             <div className="mt-6 pt-4 border-t border-slate-200">
                                 <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-800 text-white p-4 rounded-lg print:bg-white print:text-black print:border print:border-slate-800">
                                     <div className="flex items-center gap-2">
-                                        <span className="font-semibold text-slate-300 print:text-black">合約未請款餘額：</span>
+                                        <span className="font-semibold text-slate-300 print:text-black">
+                                            {isOverContractAmount ? '合約追加 / 超請餘額：' : '合約未請款餘額：'}
+                                        </span>
                                     </div>
                                     <div className="flex gap-6 text-right">
                                         <div>
-                                            <div className="text-xs text-slate-400 print:text-slate-500">剩餘數量</div>
-                                            <div className={`text-xl font-bold ${remainingContractQty < 0 ? 'text-red-400' : 'text-slate-100 print:text-black'}`}>{formatNumber(remainingContractQty)} m²</div>
+                                            <div className="text-xs text-slate-400 print:text-slate-500">
+                                                {isOverContractQty ? '追加/超請數量' : '剩餘數量'}
+                                            </div>
+                                            <div className={`text-xl font-bold ${isOverContractQty ? 'text-orange-400' : 'text-slate-100 print:text-black'}`}>
+                                                {isOverContractQty ? `+${formatNumber(absRemainingQty)}` : formatNumber(remainingContractQty)} m²
+                                            </div>
                                         </div>
                                         <div>
-                                            <div className="text-xs text-slate-400 print:text-slate-500">剩餘未稅金額</div>
-                                            <div className={`text-2xl font-mono font-bold ${remainingContractAmount < 0 ? 'text-red-400' : 'text-green-400 print:text-black'}`}>{formatCurrency(remainingContractAmount)}</div>
-                                            <div className="text-[10px] text-slate-400 mt-1">含稅: {formatCurrency(remainingContractAmount + Math.round(remainingContractAmount * 0.05))}</div>
+                                            <div className="text-xs text-slate-400 print:text-slate-500">
+                                                {isOverContractAmount ? '追加/超請未稅金額' : '剩餘未稅金額'}
+                                            </div>
+                                            <div className={`text-2xl font-mono font-bold ${isOverContractAmount ? 'text-orange-400' : 'text-green-400 print:text-black'}`}>
+                                                {isOverContractAmount ? `+${formatCurrency(absRemainingAmount)}` : formatCurrency(remainingContractAmount)}
+                                            </div>
+                                            <div className="text-[10px] text-slate-400 mt-1">
+                                                含稅: {formatCurrency(absRemainingTotal)}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -998,8 +1018,8 @@
                                 <div className="flex justify-between text-red-500 font-semibold border-t border-dashed border-slate-300 pt-3 items-start print:text-black">
                                     <span>總成本合計 (未稅)</span>
                                     <div className="text-right">
-                                        <span>-{formatCurrency(totalCost)}</span>
-                                        <div className="text-xs text-red-400 font-normal mt-1">含稅實付參考: -{formatCurrency(totalCost + totalCostTax)}</div>
+                                        <span>{formatCurrency(totalCost)}</span>
+                                        <div className="text-xs text-red-400 font-normal mt-1">含稅實付參考: {formatCurrency(totalCost + totalCostTax)}</div>
                                     </div>
                                 </div>
 
