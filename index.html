@@ -31,6 +31,14 @@
         }
         window.db = firebase.firestore();
         window.auth = firebase.auth();
+        
+        window.onerror = function(message, source, lineno, colno, error) {
+            const display = document.getElementById('error-display');
+            if (display) {
+                display.style.display = 'block';
+                display.innerHTML = `<strong>發生錯誤：</strong><br>${message}<br><small>${source}:${lineno}</small>`;
+            }
+        };
     </script>
 
     <style>
@@ -64,23 +72,6 @@
 
     <div id="error-display"></div>
     <div id="root"></div>
-
-    <script>
-        window.onerror = function(message, source, lineno, colno, error) {
-            const display = document.getElementById('error-display');
-            display.style.display = 'block';
-            display.innerHTML = `<strong>發生錯誤：</strong><br>${message}<br><small>${source}:${lineno}</small>`;
-        };
-
-        function startApp() {
-            const container = document.getElementById('root');
-            if (container && window.ReactDOM && window.ReactDOM.createRoot && window.SoundproofingCalculator) {
-                ReactDOM.createRoot(container).render(React.createElement(window.SoundproofingCalculator));
-            }
-        }
-        
-        window.onload = startApp;
-    </script>
 
     <script type="text/babel">
         const { useState, useEffect, useCallback, useMemo } = React;
@@ -122,7 +113,7 @@
             </svg>
         );
 
-        // --- 資料處理 (相容 V1 架構) ---
+        // --- 資料處理 (相容 V1 架構與精準單價映射) ---
         const sanitizeProjects = (projects) => {
             if (!Array.isArray(projects)) return [];
             return projects.map(p => {
@@ -150,6 +141,8 @@
                     initialShippingCosts = [{ id: generateId(), name: '第一批運費', value: '' }];
                 }
 
+                const matType = p.matType || '3+';
+
                 return {
                     ...p,
                     contracts: initialContracts,
@@ -168,8 +161,8 @@
                     glueUnitPrice: p.glueUnitPrice?.toString() || '1680',
                     tapeWideUnitPrice: p.tapeWideUnitPrice?.toString() || '24.5',
                     tapeNarrowUnitPrice: p.tapeNarrowUnitPrice?.toString() || '38',
-                    matType: p.matType || '3+',
-                    matUnitPrice: p.matUnitPrice?.toString() || (p.matType === '4+2' ? '170' : '150'),
+                    matType: matType,
+                    matUnitPrice: p.matUnitPrice?.toString() || (matType === '4+2' ? '170' : '150'),
                     expectedWasteRate: p.expectedWasteRate?.toString() || '11',
                     estimateUpdatedAt: p.estimateUpdatedAt || Date.now(),
                 };
@@ -424,7 +417,6 @@
 
                         if (sanitized.length > 0) {
                             setCurrentProjectId(prevId => {
-                                // 如果當前沒有選擇的專案，或者當前的 ID 不存在於新拉取的列表中，則預設選第一個
                                 if (!prevId || !sanitized.find(p => p.id === prevId)) {
                                     return sanitized[0].id;
                                 }
@@ -448,7 +440,7 @@
                 }).catch(error => console.error(`更新失敗:`, error));
             }, [user]);
 
-            // CRUD 操作 (接軌雲端)
+            // CRUD 操作
             const handleCreateProject = useCallback((name = `新專案 ${projects.length + 1}`) => {
                 if (!user) return;
                 const newProjectData = createInitialState(name, getUserName(user), user.uid);
@@ -496,13 +488,11 @@
                 updateToFirestore(currentProjectId, { [listName]: updatedList });
             }, [currentProjectId, projects, updateToFirestore]);
 
-            // 當前專案計算 (從本地同步好的狀態拉取)
             const currentProject = useMemo(() => {
                 if (projects.length === 0) return createInitialState('載入中...', '系統');
                 return projects.find(p => p.id === currentProjectId) || projects[0];
             }, [projects, currentProjectId]);
 
-            // 處理專案名稱的防抖更新
             useEffect(() => {
                 setTempProjectName(currentProject.projectName);
             }, [currentProject.projectName]); 
@@ -557,32 +547,28 @@
                 estimateUpdatedAt, lastUpdated, lastUpdatedBy
             } = currentProject;
 
-            // 全局基準 (由上方設定決定)
             const ROLL_AREA = matType === '4+2' ? 75 : 50; 
 
-            // 第一大項：合約與請款 (所有金額預設為未稅)
+            // 第一大項
             const totalContractQty = contracts.reduce((sum, c) => sum + parseNum(c.qty), 0);
             const totalContractAmount = contracts.reduce((sum, c) => sum + (parseNum(c.qty) * parseNum(c.price)), 0);
-            
             const totalPaymentQty = paymentRequests.reduce((sum, pr) => sum + parseNum(pr.qty), 0);
             const totalPaymentAmount = paymentRequests.reduce((sum, pr) => sum + parseNum(pr.amount), 0);
-            
             const remainingContractQty = totalContractQty - totalPaymentQty;
             const remainingContractAmount = totalContractAmount - totalPaymentAmount;
-            
             const totalDeductionAmount = deductions.reduce((sum, curr) => sum + parseNum(curr.value), 0);
             
             // 第二大項
             const totalDelivered = deliveries.reduce((acc, curr) => acc + parseNum(curr.value), 0);
             const totalUsedInventory = totalDelivered - parseNum(unusedInventory);
             
-            // 第三大項 (損耗)
+            // 第三大項
             const totalArea = totalUsedInventory * ROLL_AREA;
             const totalProjectArea = parseNum(projectedArea) + parseNum(wallArea);
             const wasteAreaDisplay = Math.max(0, totalProjectArea > 0 ? totalArea - totalProjectArea : 0);
             const calculatedWasteRate = totalArea > 0 ? ((parseNum(wallArea) + wasteAreaDisplay) / totalArea) * 100 : 0;
             
-            // 第四大項：預估
+            // 第四大項
             let totalEstimatedRolls = 0;
             let totalEstimatedArea = 0;
 
@@ -603,21 +589,17 @@
             const remainingToOrder = totalEstimatedRolls - totalDelivered;
             const remainingBudget = totalEstimatedRolls - totalUsedInventory;
 
-            // 第五大項 (成本，預設為未稅)
+            // 第五大項
             const totalSubPayment = subPayments.reduce((acc, curr) => acc + parseNum(curr.value), 0);
-            // 運費與耗材拆分處理
             const totalShippingCost = shippingCosts.reduce((sum, curr) => sum + parseNum(curr.value), 0);
             const totalConsumablesCost = (parseNum(glueBuckets) * parseNum(glueUnitPrice)) + (parseNum(tapeWideRolls) * parseNum(tapeWideUnitPrice)) + (parseNum(tapeNarrowRolls) * parseNum(tapeNarrowUnitPrice));
             const matTotalCost = totalArea * parseNum(matUnitPrice); 
             
-            // 成本加總
             const totalCost = totalSubPayment + totalConsumablesCost + totalDeductionAmount + matTotalCost + totalShippingCost;
-            
-            // 精準稅金計算：剔除不需要稅金的耗材 (膠水、膠帶)
             const totalTaxableCost = totalSubPayment + totalShippingCost + totalDeductionAmount + matTotalCost;
             const totalCostTax = Math.round(totalTaxableCost * 0.05);
             
-            // 第六大項 (毛利 - 嚴格基於未稅)
+            // 第六大項
             const grossProfit = totalPaymentAmount - totalCost; 
             const grossMargin = totalPaymentAmount > 0 ? (grossProfit / totalPaymentAmount) * 100 : 0;
 
@@ -665,7 +647,6 @@
                         </div>
                     </div>
 
-                    {/* 專案基本設定區塊 */}
                     <div className="bg-white rounded-xl shadow p-6 mb-6 border border-slate-200 relative text-left print-col">
                         <div className="absolute top-4 right-4 text-xs text-slate-400 no-print">
                             最後編輯: {lastUpdatedBy} ({new Date(lastUpdated).toLocaleString()})
@@ -1043,6 +1024,16 @@
                     </div>
                 </div>
             );
+        }
+
+        // --- 強制觸發渲染機制 ---
+        // 確保在即時預覽編輯器 (Canvas) 環境中，貼上程式碼後能無視 window.onload 狀態直接強制重繪 React 畫面
+        const container = document.getElementById('root');
+        if (container) {
+            if (!window._reactRoot) {
+                window._reactRoot = ReactDOM.createRoot(container);
+            }
+            window._reactRoot.render(React.createElement(window.SoundproofingCalculator));
         }
     </script>
 </body>
