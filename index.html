@@ -217,19 +217,22 @@
             return projects.map(p => {
                 let initialContracts = p.contracts || [];
                 if (initialContracts.length === 0 && (p.contractQty || p.unitPrice)) {
-                    initialContracts = [{ id: generateId(), name: '主合約', qty: (p.contractQty || '').toString(), price: (p.unitPrice || '').toString() }];
+                    initialContracts = [{ id: generateId(), name: '主合約', qty: (p.contractQty || '').toString(), price: (p.unitPrice || '').toString(), excludeQty: false }];
                 } else if (initialContracts.length === 0) {
-                    initialContracts = [{ id: generateId(), name: '材料合約', qty: '', price: '' }];
+                    initialContracts = [{ id: generateId(), name: '材料合約', qty: '', price: '', excludeQty: false }];
+                } else {
+                    initialContracts = initialContracts.map(c => ({...c, excludeQty: c.excludeQty || false}));
                 }
 
                 let initialPayments = p.paymentRequests || [];
                 initialPayments = initialPayments.map(pr => {
+                    let base = { id: pr.id || generateId(), name: pr.name || '期款', excludeQty: pr.excludeQty || false };
                     if (pr.value !== undefined && pr.amount === undefined) {
                         const qty = pr.value.toString();
                         const amount = (parseNum(qty) * parseNum(p.unitPrice || 0)).toString();
-                        return { id: pr.id || generateId(), name: pr.name || '期款', qty: qty, amount: amount };
+                        return { ...base, qty: qty, amount: amount };
                     }
-                    return { id: pr.id || generateId(), name: pr.name || '期款', qty: pr.qty || '', amount: pr.amount || '' };
+                    return { ...base, qty: pr.qty || '', amount: pr.amount || '' };
                 });
                 
                 let initialShippingCosts = p.shippingCosts || [];
@@ -271,8 +274,8 @@
             projectName: projectName, 
             uid: uid,
             lastUpdatedBy: userName,
-            contracts: [{ id: generateId(), name: '材料合約', qty: '', price: '' }],
-            paymentRequests: [{ id: generateId(), name: '第一期請款', qty: '', amount: '' }],
+            contracts: [{ id: generateId(), name: '材料合約', qty: '', price: '', excludeQty: false }],
+            paymentRequests: [{ id: generateId(), name: '第一期請款', qty: '', amount: '', excludeQty: false }],
             deductions: [{ id: generateId(), name: '清潔費', value: '' }, { id: generateId(), name: '保留款', value: '' }],
             deliveries: [{ id: generateId(), date: '', value: '' }],
             shippingCosts: [{ id: generateId(), name: '第一批運費', value: '' }],
@@ -694,11 +697,14 @@
 
             const ROLL_AREA = matType === '4+2' ? 75 : 50; 
 
-            // 第一大項
-            const totalContractQty = contracts.reduce((sum, c) => sum + parseNum(c.qty), 0);
+            // 第一大項：合約總計 (有勾選排除數量的，只算金額不算坪數)
+            const totalContractQty = contracts.reduce((sum, c) => c.excludeQty ? sum : sum + parseNum(c.qty), 0);
             const totalContractAmount = contracts.reduce((sum, c) => sum + (parseNum(c.qty) * parseNum(c.price)), 0);
-            const totalPaymentQty = paymentRequests.reduce((sum, pr) => sum + parseNum(pr.qty), 0);
+            
+            // 第一大項：請款總計 (有勾選排除數量的，只算金額不算坪數)
+            const totalPaymentQty = paymentRequests.reduce((sum, pr) => pr.excludeQty ? sum : sum + parseNum(pr.qty), 0);
             const totalPaymentAmount = paymentRequests.reduce((sum, pr) => sum + parseNum(pr.amount), 0);
+            
             const remainingContractQty = totalContractQty - totalPaymentQty;
             const remainingContractAmount = totalContractAmount - totalPaymentAmount;
             const totalDeductionAmount = deductions.reduce((sum, curr) => sum + parseNum(curr.value), 0);
@@ -864,23 +870,29 @@
                                     <SectionHeader title="合約明細結構 (未稅)" />
                                     <div className="space-y-3 mb-4">
                                         {contracts.map((c, index) => (
-                                            <div key={c.id} className="flex gap-2 items-end pb-3 border-b border-neutral-100 transition-colors duration-300 print-avoid-break">
+                                            <div key={c.id} className="flex gap-2 items-start pb-3 border-b border-neutral-100 transition-colors duration-300 print-avoid-break">
                                                 <div className="flex-1">
                                                     <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">項目名稱</label>
-                                                    <SafeInput type="text" value={c.name} onChange={(e) => updateListField('contracts', c.id, 'name', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print:font-bold transition-colors duration-300" placeholder="如: 材料 / A建案" />
+                                                    <SafeInput type="text" value={c.name} onChange={(e) => updateListField('contracts', c.id, 'name', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print:font-bold transition-colors duration-300" placeholder="如: 材料 / 施工" />
                                                 </div>
-                                                <div className="w-20">
+                                                <div className="w-24">
                                                     <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">數量(m²)</label>
                                                     <input type="number" value={c.qty} onChange={(e) => updateListField('contracts', c.id, 'qty', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print-text-right transition-colors duration-300" placeholder="數量" />
+                                                    <label className="flex items-center gap-1 mt-1 text-[10px] text-neutral-400 cursor-pointer print:hidden hover:text-primary-600 transition-colors">
+                                                        <input type="checkbox" checked={!c.excludeQty} onChange={(e) => updateListField('contracts', c.id, 'excludeQty', !e.target.checked)} className="rounded border-neutral-300 text-primary-500 focus:ring-primary-500 w-3 h-3 cursor-pointer" />
+                                                        計入總數
+                                                    </label>
                                                 </div>
                                                 <div className="w-24">
                                                     <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">未稅單價</label>
                                                     <input type="number" value={c.price} onChange={(e) => updateListField('contracts', c.id, 'price', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print-text-right transition-colors duration-300" placeholder="單價" />
                                                 </div>
-                                                <button onClick={() => removeListItem('contracts', c.id)} className="mb-0.5 p-1.5 text-danger-500 hover:bg-danger-50 rounded-md transition-colors duration-300 print:hidden"><Trash2 /></button>
+                                                <div className="mt-[22px]">
+                                                    <button onClick={() => removeListItem('contracts', c.id)} className="p-1.5 text-danger-500 hover:bg-danger-50 rounded-md transition-colors duration-300 print:hidden"><Trash2 /></button>
+                                                </div>
                                             </div>
                                         ))}
-                                        <button onClick={() => addListItem('contracts', { name: '', qty: '', price: '' })} className="flex items-center gap-1 text-sm text-primary-600 font-medium hover:text-primary-700 mt-2 transition-colors duration-300 print:hidden"><Plus /> 新增合約項目</button>
+                                        <button onClick={() => addListItem('contracts', { name: '', qty: '', price: '', excludeQty: false })} className="flex items-center gap-1 text-sm text-primary-600 font-medium hover:text-primary-700 mt-2 transition-colors duration-300 print:hidden"><Plus /> 新增合約項目</button>
                                     </div>
                                     
                                     <div className="bg-neutral-50 p-4 rounded-lg border border-neutral-200 transition-colors duration-300 print:bg-transparent">
@@ -896,23 +908,29 @@
                                     <SectionHeader title="實際請款進度 (未稅)" />
                                     <div className="space-y-3 mb-4">
                                         {paymentRequests.map((pr, index) => (
-                                            <div key={pr.id} className="flex gap-2 items-end pb-3 border-b border-neutral-100 transition-colors duration-300 print-avoid-break">
+                                            <div key={pr.id} className="flex gap-2 items-start pb-3 border-b border-neutral-100 transition-colors duration-300 print-avoid-break">
                                                 <div className="flex-1">
                                                     <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">期數/說明</label>
                                                     <SafeInput type="text" value={pr.name} onChange={(e) => updateListField('paymentRequests', pr.id, 'name', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 transition-colors duration-300" placeholder="如: 第一期" />
                                                 </div>
-                                                <div className="w-20">
+                                                <div className="w-24">
                                                     <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">數量(m²)</label>
                                                     <input type="number" value={pr.qty} onChange={(e) => updateListField('paymentRequests', pr.id, 'qty', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print-text-right transition-colors duration-300" placeholder="數量" />
+                                                    <label className="flex items-center gap-1 mt-1 text-[10px] text-neutral-400 cursor-pointer print:hidden hover:text-primary-600 transition-colors">
+                                                        <input type="checkbox" checked={!pr.excludeQty} onChange={(e) => updateListField('paymentRequests', pr.id, 'excludeQty', !e.target.checked)} className="rounded border-neutral-300 text-primary-500 focus:ring-primary-500 w-3 h-3 cursor-pointer" />
+                                                        計入總數
+                                                    </label>
                                                 </div>
                                                 <div className="w-28">
                                                     <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">未稅金額</label>
                                                     <input type="number" value={pr.amount} onChange={(e) => updateListField('paymentRequests', pr.id, 'amount', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print-text-right transition-colors duration-300" placeholder="金額" />
                                                 </div>
-                                                <button onClick={() => removeListItem('paymentRequests', pr.id)} className="mb-0.5 p-1.5 text-danger-500 hover:bg-danger-50 rounded-md transition-colors duration-300 print:hidden"><Trash2 /></button>
+                                                <div className="mt-[22px]">
+                                                    <button onClick={() => removeListItem('paymentRequests', pr.id)} className="p-1.5 text-danger-500 hover:bg-danger-50 rounded-md transition-colors duration-300 print:hidden"><Trash2 /></button>
+                                                </div>
                                             </div>
                                         ))}
-                                        <button onClick={() => addListItem('paymentRequests', { name: '', qty: '', amount: '' })} className="flex items-center gap-1 text-sm text-primary-600 font-medium hover:text-primary-700 mt-2 transition-colors duration-300 print:hidden"><Plus /> 新增請款期數</button>
+                                        <button onClick={() => addListItem('paymentRequests', { name: '', qty: '', amount: '', excludeQty: false })} className="flex items-center gap-1 text-sm text-primary-600 font-medium hover:text-primary-700 mt-2 transition-colors duration-300 print:hidden"><Plus /> 新增請款期數</button>
                                     </div>
 
                                     <div className="bg-primary-50 p-4 rounded-lg border border-primary-100 print:bg-transparent print:border-neutral-200 transition-colors duration-300 print-avoid-break">
