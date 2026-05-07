@@ -128,10 +128,9 @@
             --danger-50: #7f1d1d; --danger-100: #991b1b; --danger-200: #b91c1c; --danger-400: #f87171; --danger-500: #ef4444; --danger-600: #dc2626;
         }
         
-        /* --- 核心優化：列印專用樣式覆寫 (確保白底黑字、隱藏不必要元素) --- */
+        /* --- 核心優化：列印專用分頁與樣式覆寫 --- */
         @media print {
             body { background: white !important; color: black !important; }
-            .print-col { display: block !important; break-inside: avoid; }
             input, select { 
                 border: none !important; 
                 outline: none !important; 
@@ -147,12 +146,16 @@
             .border { border-color: #cbd5e1 !important; }
             .max-w-4xl { max-w: 100% !important; margin: 0 !important; padding: 0 !important; }
             
+            /* 分頁與防切斷控制 */
+            .print-page-break { page-break-before: always !important; break-before: page !important; }
+            .print-avoid-break { page-break-inside: avoid !important; break-inside: avoid !important; }
+            
             /* 強制清除所有可能產生灰底的背景色 */
-            .bg-neutral-800, .bg-surface, .bg-neutral-50, .bg-primary-50, .bg-secondary-50, .bg-warning-50, .bg-success-50, .bg-accent-50 {
+            .bg-neutral-800, .bg-surface, .bg-neutral-50, .bg-primary-50, .bg-secondary-50, .bg-warning-50, .bg-success-50, .bg-accent-50, .bg-accent-100 {
                 background-color: transparent !important;
             }
             /* 強制將所有反白的文字轉回黑色，確保印表機清楚呈現 */
-            .text-neutral-50, .text-white, .text-neutral-400, .text-secondary-400, .text-primary-800, .text-neutral-800 {
+            .text-neutral-50, .text-white, .text-neutral-400, .text-secondary-400, .text-primary-800, .text-neutral-800, .text-secondary-800, .text-warning-600, .text-primary-700 {
                 color: black !important;
             }
             /* 讓瀏覽器完全聽從上述指令 */
@@ -290,12 +293,51 @@
             estimateUpdatedAt: Date.now(), 
         });
 
+        // --- 元件防護：中文輸入法 (IME) 專用 Input ---
+        const SafeInput = React.forwardRef(({ value, onChange, ...props }, ref) => {
+            const [localValue, setLocalValue] = useState(value || '');
+            const isComposing = React.useRef(false);
+
+            useEffect(() => {
+                if (!isComposing.current && value !== localValue) {
+                    setLocalValue(value || '');
+                }
+            }, [value]);
+
+            const handleChange = (e) => {
+                setLocalValue(e.target.value);
+                if (!isComposing.current && onChange) {
+                    onChange(e);
+                }
+            };
+
+            const handleCompositionStart = () => {
+                isComposing.current = true;
+            };
+
+            const handleCompositionEnd = (e) => {
+                isComposing.current = false;
+                if (onChange) onChange(e);
+            };
+
+            return (
+                <input
+                    {...props}
+                    ref={ref}
+                    value={localValue}
+                    onChange={handleChange}
+                    onCompositionStart={handleCompositionStart}
+                    onCompositionEnd={handleCompositionEnd}
+                />
+            );
+        });
+
         // --- 元件 ---
-        const Card = ({ title, icon: Icon, children }) => (
-            <div className="bg-surface rounded-xl shadow-sm border border-neutral-200 overflow-hidden mb-6 print-col transition-colors duration-300">
-                <div className="bg-neutral-50 px-6 py-4 border-b border-neutral-100 flex items-center gap-2 transition-colors duration-300">
-                    {Icon && <Icon className="text-primary-600" />}
-                    <h2 className="font-bold text-lg text-neutral-800 transition-colors duration-300">{title}</h2>
+        const Card = ({ title, icon: Icon, children, className = "" }) => (
+            <div className={`bg-surface rounded-xl shadow-sm border border-neutral-200 mb-6 transition-colors duration-300 ${className}`}>
+                <div className="bg-neutral-50 px-6 py-4 border-b border-neutral-100 flex items-center gap-2 transition-colors duration-300 print:bg-transparent">
+                    {Icon && <Icon className="text-primary-600 print:text-black" />}
+                    <h2 className="font-bold text-lg text-neutral-800 transition-colors duration-300 print:text-black">{title}</h2>
                 </div>
                 <div className="p-6">{children}</div>
             </div>
@@ -309,7 +351,7 @@
             const tax = Math.round(amount * 0.05);
             const total = amount + tax;
             return (
-                <div className="mt-3 border-t border-neutral-200 pt-3 transition-colors duration-300">
+                <div className="mt-3 border-t border-neutral-200 pt-3 transition-colors duration-300 print-avoid-break">
                     <div className="flex justify-between text-xs text-neutral-500 mb-1 transition-colors duration-300">
                         <span>未稅金額:</span>
                         <span>{formatCurrency(amount)}</span>
@@ -361,7 +403,7 @@
 
         const DynamicListItem = ({ item, index, labelPrefix, valueField = "value", dateField, updateRow, onRemove }) => {
             return (
-                <div className="flex flex-col gap-1 pb-3 border-b border-neutral-100 last:border-0 transition-colors duration-300">
+                <div className="flex flex-col gap-1 pb-3 border-b border-neutral-100 last:border-0 transition-colors duration-300 print-avoid-break">
                     <div className="flex gap-2 items-end text-left">
                         {dateField && (
                             <div className="w-1/3">
@@ -408,10 +450,10 @@
 
         const DeductionItem = ({ item, updateRow, onRemove, placeholder = "項目名稱" }) => { 
             return (
-                <div className="flex gap-2 items-end mb-3 text-left">
+                <div className="flex gap-2 items-end mb-3 text-left print-avoid-break">
                     <div className="flex-1">
                         <label className="block text-xs text-neutral-500 mb-1 print:hidden transition-colors duration-300">名稱/備註</label>
-                        <input
+                        <SafeInput
                             type="text"
                             value={item.name}
                             onChange={(e) => updateRow(item.id, 'name', e.target.value)}
@@ -716,7 +758,7 @@
 
             return (
                 <div className="max-w-4xl mx-auto pb-20 p-4 sm:p-6 text-center">
-                    <header className="mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                    <header className="mb-6 flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
                         <div className="flex items-center gap-3">
                             <div className="bg-accent-100 p-2 rounded-full transition-colors duration-300 print:hidden"><Users className="text-accent-600"/></div>
                             <div className="text-left">
@@ -770,13 +812,13 @@
                         </div>
                     </div>
 
-                    <div className="bg-surface rounded-xl shadow p-6 mb-6 border border-neutral-200 relative text-left print-col transition-colors duration-300">
+                    <div className="bg-surface rounded-xl shadow p-6 mb-6 border border-neutral-200 relative text-left transition-colors duration-300">
                         <div className="absolute top-4 right-4 text-xs text-neutral-400 transition-colors duration-300 print:hidden">
                             最後編輯: {lastUpdatedBy} ({new Date(lastUpdated).toLocaleString()})
                         </div>
                         <div className="mb-4 pb-4 border-b border-neutral-100 transition-colors duration-300">
                             <label className="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-1 transition-colors duration-300 print:hidden">專案名稱</label>
-                            <input 
+                            <SafeInput 
                                 type="text" 
                                 value={tempProjectName} 
                                 onChange={(e) => setTempProjectName(e.target.value)} 
@@ -822,10 +864,10 @@
                                     <SectionHeader title="合約明細結構 (未稅)" />
                                     <div className="space-y-3 mb-4">
                                         {contracts.map((c, index) => (
-                                            <div key={c.id} className="flex gap-2 items-end pb-3 border-b border-neutral-100 transition-colors duration-300">
+                                            <div key={c.id} className="flex gap-2 items-end pb-3 border-b border-neutral-100 transition-colors duration-300 print-avoid-break">
                                                 <div className="flex-1">
                                                     <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">項目名稱</label>
-                                                    <input type="text" value={c.name} onChange={(e) => updateListField('contracts', c.id, 'name', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print:font-bold transition-colors duration-300" placeholder="如: 材料 / A建案" />
+                                                    <SafeInput type="text" value={c.name} onChange={(e) => updateListField('contracts', c.id, 'name', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print:font-bold transition-colors duration-300" placeholder="如: 材料 / A建案" />
                                                 </div>
                                                 <div className="w-20">
                                                     <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">數量(m²)</label>
@@ -854,10 +896,10 @@
                                     <SectionHeader title="實際請款進度 (未稅)" />
                                     <div className="space-y-3 mb-4">
                                         {paymentRequests.map((pr, index) => (
-                                            <div key={pr.id} className="flex gap-2 items-end pb-3 border-b border-neutral-100 transition-colors duration-300">
+                                            <div key={pr.id} className="flex gap-2 items-end pb-3 border-b border-neutral-100 transition-colors duration-300 print-avoid-break">
                                                 <div className="flex-1">
                                                     <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">期數/說明</label>
-                                                    <input type="text" value={pr.name} onChange={(e) => updateListField('paymentRequests', pr.id, 'name', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 transition-colors duration-300" placeholder="如: 第一期" />
+                                                    <SafeInput type="text" value={pr.name} onChange={(e) => updateListField('paymentRequests', pr.id, 'name', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 transition-colors duration-300" placeholder="如: 第一期" />
                                                 </div>
                                                 <div className="w-20">
                                                     <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">數量(m²)</label>
@@ -873,7 +915,7 @@
                                         <button onClick={() => addListItem('paymentRequests', { name: '', qty: '', amount: '' })} className="flex items-center gap-1 text-sm text-primary-600 font-medium hover:text-primary-700 mt-2 transition-colors duration-300 print:hidden"><Plus /> 新增請款期數</button>
                                     </div>
 
-                                    <div className="bg-primary-50 p-4 rounded-lg border border-primary-100 print:bg-transparent print:border-neutral-200 transition-colors duration-300">
+                                    <div className="bg-primary-50 p-4 rounded-lg border border-primary-100 print:bg-transparent print:border-neutral-200 transition-colors duration-300 print-avoid-break">
                                         <div className="flex justify-between text-sm text-primary-800 mb-1 transition-colors duration-300 print:text-black">
                                             <span>累積請款數量:</span>
                                             <span className="font-bold">{formatNumber(totalPaymentQty)} m²</span>
@@ -883,7 +925,7 @@
                                 </div>
                             </div>
                             
-                            <div className="mt-6 pt-4 border-t border-neutral-200 transition-colors duration-300">
+                            <div className="mt-6 pt-4 border-t border-neutral-200 transition-colors duration-300 print-avoid-break">
                                 <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-neutral-800 text-neutral-50 p-4 rounded-lg print:bg-transparent print:border print:border-neutral-300 transition-colors duration-300">
                                     <div className="flex items-center gap-2">
                                         <span className="font-semibold">
@@ -914,7 +956,7 @@
                                 </div>
                             </div>
 
-                            <div className="mt-6 border-t border-neutral-200 pt-4 transition-colors duration-300">
+                            <div className="mt-6 border-t border-neutral-200 pt-4 transition-colors duration-300 print-avoid-break">
                                 <SectionHeader title="扣款項目 (未稅)" />
                                 {deductions.map(item => (
                                     <DeductionItem 
@@ -933,7 +975,7 @@
                         </Card>
 
                         {/* 2. 進貨 */}
-                        <Card title="第二大項：進貨與庫存" icon={Package}>
+                        <Card title="第二大項：進貨與庫存" icon={Package} className="print-page-break">
                             <div className="grid md:grid-cols-2 gap-6">
                                 <div>
                                     <SectionHeader title="進貨紀錄 (卷)" />
@@ -945,12 +987,12 @@
                                         valueField="value"
                                         labelPrefix="進貨" dateField="date" 
                                     />
-                                    <div className="text-sm font-bold text-neutral-700 bg-neutral-50 p-2 rounded text-left print:bg-transparent print:border print:border-neutral-200 transition-colors duration-300">累積進貨: {formatNumber(totalDelivered)}</div>
+                                    <div className="text-sm font-bold text-neutral-700 bg-neutral-50 p-2 rounded text-left print:bg-transparent print:border print:border-neutral-200 transition-colors duration-300 print-avoid-break">累積進貨: {formatNumber(totalDelivered)}</div>
                                 </div>
                                 <div>
                                     <SectionHeader title="現場盤點" />
                                     <SimpleInput label="未使用數量 (卷)" value={unusedInventory} onChange={(v) => updateProjectField('unusedInventory', v)} />
-                                    <div className="bg-warning-50 p-4 rounded-lg mt-4 text-left print:bg-transparent print:border print:border-neutral-200 transition-colors duration-300">
+                                    <div className="bg-warning-50 p-4 rounded-lg mt-4 text-left print:bg-transparent print:border print:border-neutral-200 transition-colors duration-300 print-avoid-break">
                                         <div className="text-sm text-warning-800 font-semibold mb-1 transition-colors duration-300 print:text-black">實際使用量</div>
                                         <div className="text-2xl font-bold text-warning-600 transition-colors duration-300 print:text-black">{formatNumber(totalUsedInventory)}</div>
                                     </div>
@@ -959,8 +1001,8 @@
                         </Card>
 
                         {/* 3. 實際損耗 */}
-                        <Card title="第三大項：面積與實際損耗" icon={Activity}>
-                            <div className="grid md:grid-cols-4 gap-4 mb-4">
+                        <Card title="第三大項：面積與實際損耗" icon={Activity} className="print-page-break">
+                            <div className="grid md:grid-cols-4 gap-4 mb-4 print-avoid-break">
                                 <SimpleInput label="投影面積" value={projectedArea} onChange={(v) => updateProjectField('projectedArea', v)} />
                                 <SimpleInput label="上牆面積" value={wallArea} onChange={(v) => updateProjectField('wallArea', v)} />
                                 <div className="mb-4 text-left">
@@ -973,25 +1015,25 @@
                                 </div>
                             </div>
 
-                            <div className="bg-neutral-800 text-neutral-50 rounded-lg flex flex-col md:flex-row justify-between items-center gap-2 p-4 print:bg-transparent print:border print:border-neutral-300 transition-colors duration-300">
+                            <div className="bg-neutral-800 text-neutral-50 rounded-lg flex flex-col md:flex-row justify-between items-center gap-2 p-4 print:bg-transparent print:border print:border-neutral-300 transition-colors duration-300 print-avoid-break">
                                 <div className="flex items-center gap-2">
-                                    <span className="font-semibold">總損耗率結果：</span>
-                                    <span className="text-xs bg-neutral-700 px-2 py-1 rounded text-neutral-400 print:bg-transparent print:border print:border-neutral-200 transition-colors duration-300">含上牆與殘料</span>
+                                    <span className="font-semibold print:text-black">總損耗率結果：</span>
+                                    <span className="text-xs bg-neutral-700 px-2 py-1 rounded text-neutral-400 print:bg-transparent print:border print:border-neutral-200 transition-colors duration-300 print:text-black">含上牆與殘料</span>
                                 </div>
                                 <span className="text-3xl font-mono text-warning-400 print:text-black">{calculatedWasteRate.toFixed(2)}%</span>
                             </div>
                         </Card>
 
                         {/* 4. 預估備料 */}
-                        <Card title="第四大項：施工前備料預估與檢核" icon={FolderOpen}>
+                        <Card title="第四大項：施工前備料預估與檢核" icon={FolderOpen} className="print-page-break">
                             <div className="mb-6 text-left">
                                 <SectionHeader title="分批叫貨預估清單" />
                                 <div className="space-y-4">
                                     {enrichedEstimations.map((est, index) => (
-                                        <div key={est.id} className="flex flex-col md:flex-row gap-3 items-start md:items-end bg-neutral-50 p-3 rounded-lg border border-neutral-200 print:bg-transparent transition-colors duration-300">
+                                        <div key={est.id} className="flex flex-col md:flex-row gap-3 items-start md:items-end bg-neutral-50 p-3 rounded-lg border border-neutral-200 print:bg-transparent transition-colors duration-300 print-avoid-break">
                                             <div className="w-full md:flex-1">
                                                 <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">預估批次/名稱</label>
-                                                <input type="text" value={est.name} onChange={(e) => updateListField('estimations', est.id, 'name', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-3 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print:font-bold transition-colors duration-300" placeholder="例如: 第一批叫貨" />
+                                                <SafeInput type="text" value={est.name} onChange={(e) => updateListField('estimations', est.id, 'name', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-3 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print:font-bold transition-colors duration-300" placeholder="例如: 第一批叫貨" />
                                             </div>
                                             <div className="w-full md:w-32">
                                                 <label className="block text-xs text-neutral-500 mb-1 transition-colors duration-300 print:hidden">投影面積 (m²)</label>
@@ -1002,7 +1044,7 @@
                                                 <input type="number" value={est.wasteRate} onChange={(e) => updateListField('estimations', est.id, 'wasteRate', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1.5 px-3 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print-text-right transition-colors duration-300" placeholder="比例" />
                                             </div>
                                             <div className="w-full md:w-auto px-2 pb-1 text-right">
-                                                <div className="text-[10px] text-neutral-500 mb-0.5 whitespace-nowrap transition-colors duration-300">目標: {formatNumber(est.expectedTotalArea)} m²</div>
+                                                <div className="text-[10px] text-neutral-500 mb-0.5 whitespace-nowrap transition-colors duration-300 print:text-black">目標: {formatNumber(est.expectedTotalArea)} m²</div>
                                                 <div className="text-lg font-bold text-secondary-700 whitespace-nowrap transition-colors duration-300 print:text-black">{est.expectedRollsCeil} <span className="text-sm font-normal text-neutral-500 print:text-black">卷</span></div>
                                             </div>
                                             <button onClick={() => removeListItem('estimations', est.id)} className="p-2 text-danger-500 hover:bg-danger-100 rounded-md transition-colors print:hidden"><Trash2 /></button>
@@ -1011,13 +1053,13 @@
                                 </div>
                                 <button onClick={() => addListItem('estimations', { name: `預估批次 ${estimations.length + 1}`, projectedArea: '', wasteRate: '11' })} className="flex items-center gap-1 text-sm text-primary-600 font-medium hover:text-primary-700 mt-3 transition-colors duration-300 print:hidden"><Plus /> 新增預估批次</button>
                             </div>
-                            <div className="border-t border-neutral-200 pt-5 text-left transition-colors duration-300">
+                            <div className="border-t border-neutral-200 pt-5 text-left transition-colors duration-300 print-avoid-break">
                                 <div className="flex justify-between items-center mb-3">
                                     <SectionHeader title="叫貨差距與進度檢核" />
                                     <span className="text-[10px] text-neutral-400 transition-colors duration-300 print:hidden">預估系統最後更新：{new Date(estimateUpdatedAt || lastUpdated).toLocaleString()}</span>
                                 </div>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-secondary-50 p-4 rounded-lg border border-secondary-100 print:bg-transparent print:border-neutral-200 transition-colors duration-300">
-                                    <div><div className="text-xs text-secondary-600 mb-1 font-semibold transition-colors duration-300 print:text-black">累積預估總需求</div><div className="text-2xl font-bold text-neutral-800 transition-colors duration-300">{totalEstimatedRolls} <span className="text-sm font-normal text-neutral-500 print:text-black">卷</span></div></div>
+                                    <div><div className="text-xs text-secondary-600 mb-1 font-semibold transition-colors duration-300 print:text-black">累積預估總需求</div><div className="text-2xl font-bold text-neutral-800 transition-colors duration-300 print:text-black">{totalEstimatedRolls} <span className="text-sm font-normal text-neutral-500 print:text-black">卷</span></div></div>
                                     <div><div className="text-xs text-secondary-600 mb-1 font-semibold transition-colors duration-300 print:text-black">目前已進貨</div><div className="text-2xl font-bold text-primary-600 transition-colors duration-300 print:text-black">{totalDelivered} <span className="text-sm font-normal text-neutral-500 print:text-black">卷</span></div></div>
                                     <div className="bg-surface p-2 rounded border border-secondary-100 shadow-sm print:shadow-none print:border-neutral-200 transition-colors duration-300">
                                         <div className="text-xs text-secondary-600 mb-1 font-semibold transition-colors duration-300 print:text-black">尚未叫貨預估量</div>
@@ -1032,7 +1074,7 @@
                         </Card>
 
                         {/* 5. 成本 */}
-                        <Card title="第五大項：成本分析" icon={Calculator}>
+                        <Card title="第五大項：成本分析" icon={Calculator} className="print-page-break">
                             <div className="grid md:grid-cols-2 gap-8">
                                 <div>
                                     <SectionHeader title="施作費用 (未稅)" />
@@ -1044,7 +1086,7 @@
                                         valueField="value"
                                         labelPrefix="請款" 
                                     />
-                                    <div className="text-right text-sm mt-3 pt-3 border-t border-neutral-100 transition-colors duration-300">
+                                    <div className="text-right text-sm mt-3 pt-3 border-t border-neutral-100 transition-colors duration-300 print-avoid-break">
                                         <div className="font-bold text-neutral-700 transition-colors duration-300">施工費總計 (未稅): {formatCurrency(totalSubPayment)}</div>
                                         <InlineTax amount={totalSubPayment} />
                                     </div>
@@ -1060,7 +1102,7 @@
                                             />
                                         ))}
                                         <button onClick={() => addListItem('shippingCosts', { name: '', value: '' })} className="flex items-center gap-1 text-sm text-primary-600 mt-2 transition-colors duration-300 print:hidden"><Plus size={16}/> 新增運費/雜項</button>
-                                        <div className="text-right text-sm mt-3 pt-3 border-t border-neutral-100 transition-colors duration-300">
+                                        <div className="text-right text-sm mt-3 pt-3 border-t border-neutral-100 transition-colors duration-300 print-avoid-break">
                                             <div className="font-bold text-neutral-700 transition-colors duration-300">運費總計 (未稅): {formatCurrency(totalShippingCost)}</div>
                                             <InlineTax amount={totalShippingCost} />
                                         </div>
@@ -1068,40 +1110,40 @@
                                 </div>
                                 <div>
                                     <SectionHeader title="隔音墊成本 (未稅)" />
-                                    <div className="bg-neutral-50 p-4 rounded-lg border border-neutral-200 mb-6 transition-colors duration-300 print:bg-transparent">
-                                        <div className="flex justify-between text-sm text-neutral-600 mb-1 transition-colors duration-300">
+                                    <div className="bg-neutral-50 p-4 rounded-lg border border-neutral-200 mb-6 transition-colors duration-300 print:bg-transparent print-avoid-break">
+                                        <div className="flex justify-between text-sm text-neutral-600 mb-1 transition-colors duration-300 print:text-black">
                                             <span>規格: {matType} ({ROLL_AREA} m²/卷)</span>
                                         </div>
-                                        <div className="flex justify-between text-sm text-neutral-600 mb-2 transition-colors duration-300">
+                                        <div className="flex justify-between text-sm text-neutral-600 mb-2 transition-colors duration-300 print:text-black">
                                             <span>使用卷數: {formatNumber(totalUsedInventory)} 卷</span>
                                         </div>
                                         <div className="text-right text-sm border-t border-neutral-200 pt-2 mt-2 transition-colors duration-300">
-                                            <div className="font-bold text-primary-700 transition-colors duration-300">隔音墊成本 (未稅): {formatCurrency(matTotalCost)}</div>
+                                            <div className="font-bold text-primary-700 transition-colors duration-300 print:text-black">隔音墊成本 (未稅): {formatCurrency(matTotalCost)}</div>
                                             <InlineTax amount={matTotalCost} />
                                         </div>
                                     </div>
 
                                     <SectionHeader title="膠材耗材設定 (不計稅金)" />
-                                    <div className="flex gap-2 items-center mb-2">
+                                    <div className="flex gap-2 items-center mb-2 print-avoid-break">
                                         <div className="w-16 flex-shrink-0 text-sm text-left font-medium transition-colors duration-300">膠水</div>
                                         <div className="flex-1"><input type="number" value={glueBuckets} onChange={(e) => updateProjectField('glueBuckets', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print-text-right transition-colors duration-300" placeholder="數量" /></div>
                                         <span className="text-neutral-400 text-sm transition-colors duration-300">&times;</span>
                                         <div className="flex-1"><input type="number" value={glueUnitPrice} onChange={(e) => updateProjectField('glueUnitPrice', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 text-primary-700 bg-surface print-text-right transition-colors duration-300" placeholder="單價" /></div>
                                     </div>
-                                    <div className="flex gap-2 items-center mb-2">
+                                    <div className="flex gap-2 items-center mb-2 print-avoid-break">
                                         <div className="w-16 flex-shrink-0 text-sm text-left font-medium transition-colors duration-300">寬版膠帶</div>
                                         <div className="flex-1"><input type="number" value={tapeWideRolls} onChange={(e) => updateProjectField('tapeWideRolls', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print-text-right transition-colors duration-300" placeholder="數量" /></div>
                                         <span className="text-neutral-400 text-sm transition-colors duration-300">&times;</span>
                                         <div className="flex-1"><input type="number" value={tapeWideUnitPrice} onChange={(e) => updateProjectField('tapeWideUnitPrice', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 text-primary-700 bg-surface print-text-right transition-colors duration-300" placeholder="單價" /></div>
                                     </div>
-                                    <div className="flex gap-2 items-center mb-2">
+                                    <div className="flex gap-2 items-center mb-2 print-avoid-break">
                                         <div className="w-16 flex-shrink-0 text-sm text-left font-medium transition-colors duration-300">窄版膠帶</div>
                                         <div className="flex-1"><input type="number" value={tapeNarrowRolls} onChange={(e) => updateProjectField('tapeNarrowRolls', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 bg-surface text-neutral-800 print-text-right transition-colors duration-300" placeholder="數量" /></div>
                                         <span className="text-neutral-400 text-sm transition-colors duration-300">&times;</span>
                                         <div className="flex-1"><input type="number" value={tapeNarrowUnitPrice} onChange={(e) => updateProjectField('tapeNarrowUnitPrice', e.target.value)} className="block w-full rounded-md border-neutral-300 py-1 px-2 text-sm border focus:ring-primary-500 focus:border-primary-500 text-primary-700 bg-surface print-text-right transition-colors duration-300" placeholder="單價" /></div>
                                     </div>
                                     
-                                    <div className="text-right text-sm mt-3 pt-3 border-t border-neutral-100 transition-colors duration-300">
+                                    <div className="text-right text-sm mt-3 pt-3 border-t border-neutral-100 transition-colors duration-300 print-avoid-break">
                                         <div className="font-bold text-neutral-700 transition-colors duration-300">無稅耗材總計: {formatCurrency(totalConsumablesCost)}</div>
                                     </div>
                                 </div>
@@ -1109,23 +1151,23 @@
                         </Card>
 
                         {/* 6. 毛利 (錨定未稅基準) */}
-                        <Card title="第六大項：毛利分析 (依未稅基準評估)" icon={TrendingUp}>
+                        <Card title="第六大項：毛利分析 (依未稅基準評估)" icon={TrendingUp} className="print-page-break">
                             <div className="space-y-3 text-lg text-left">
                                 <div className="flex justify-between font-semibold items-end border-b border-neutral-200 pb-2 transition-colors duration-300">
                                     <span>總營收 (請款未稅)</span>
                                     <div className="text-right">
                                         <span>{formatCurrency(totalPaymentAmount)}</span>
-                                        <div className="text-xs text-neutral-400 font-normal mt-1 transition-colors duration-300">含稅實收參考: {formatCurrency(totalPaymentAmount + Math.round(totalPaymentAmount * 0.05))}</div>
+                                        <div className="text-xs text-neutral-400 font-normal mt-1 transition-colors duration-300 print:text-black">含稅實收參考: {formatCurrency(totalPaymentAmount + Math.round(totalPaymentAmount * 0.05))}</div>
                                     </div>
                                 </div>
 
-                                <div className="text-sm text-neutral-600 space-y-2 pt-2 transition-colors duration-300">
-                                    <div className="font-semibold text-neutral-800 mb-2 transition-colors duration-300">未稅成本結構：</div>
+                                <div className="text-sm text-neutral-600 space-y-2 pt-2 transition-colors duration-300 print:text-black">
+                                    <div className="font-semibold text-neutral-800 mb-2 transition-colors duration-300 print:text-black">未稅成本結構：</div>
                                     <div className="flex justify-between"><span>(-) 扣款合計</span><span>{formatCurrency(totalDeductionAmount)}</span></div>
                                     <div className="flex justify-between"><span>(-) 施作費用</span><span>{formatCurrency(totalSubPayment)}</span></div>
                                     <div className="flex justify-between"><span>(-) 運費/雜項</span><span>{formatCurrency(totalShippingCost)}</span></div>
                                     <div className="flex justify-between"><span>(-) 隔音墊成本</span><span>{formatCurrency(matTotalCost)}</span></div>
-                                    <div className="flex justify-between border-t border-neutral-100 pt-1 mt-1 text-neutral-500 transition-colors duration-300">
+                                    <div className="flex justify-between border-t border-neutral-100 pt-1 mt-1 text-neutral-500 transition-colors duration-300 print:text-black">
                                         <span>(-) 膠材耗材 (不計稅)</span><span>{formatCurrency(totalConsumablesCost)}</span>
                                     </div>
                                 </div>
@@ -1134,13 +1176,13 @@
                                     <span>總成本合計 (未稅)</span>
                                     <div className="text-right">
                                         <span>{formatCurrency(totalCost)}</span>
-                                        <div className="text-xs text-danger-400 font-normal mt-1 transition-colors duration-300">含稅實付參考: {formatCurrency(totalCost + totalCostTax)}</div>
+                                        <div className="text-xs text-danger-400 font-normal mt-1 transition-colors duration-300 print:text-black">含稅實付參考: {formatCurrency(totalCost + totalCostTax)}</div>
                                     </div>
                                 </div>
 
                                 <div className="border-t border-neutral-400 my-4 transition-colors duration-300"></div>
 
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-2 gap-4 print-avoid-break">
                                     <div className="bg-success-50 p-4 rounded-lg text-center print:bg-transparent print:border print:border-neutral-200 transition-colors duration-300">
                                         <div className="text-sm text-success-700 mb-1 transition-colors duration-300 print:text-black">未稅毛利金額</div>
                                         <div className={`text-2xl font-bold ${grossProfit >= 0 ? 'text-success-600' : 'text-danger-600'} transition-colors duration-300 print:text-black`}>
